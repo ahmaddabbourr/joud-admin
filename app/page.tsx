@@ -38,6 +38,20 @@ const formatDate = (iso: string) => {
   return d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) + " · " + formatTime(iso);
 };
 
+// Collapsible settings card component
+function SettingsCard({title,accent,cardBg,border,text,dark,children}:{title:string;accent:string;cardBg:string;border:string;text:string;dark:boolean;children:React.ReactNode}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div style={{background:cardBg,border:`1px solid ${border}`}}>
+      <div onClick={()=>setOpen(!open)} style={{padding:"16px 22px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:open?`1px solid ${border}`:"none"}}>
+        <h3 style={{fontSize:12,letterSpacing:2,textTransform:"uppercase",color:accent,margin:0}}>{title}</h3>
+        <span style={{color:accent,fontSize:14,transition:"transform 0.2s",transform:open?"rotate(180deg)":"rotate(0)"}}> ▼</span>
+      </div>
+      {open&&<div style={{padding:"18px 22px"}}>{children}</div>}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState(""); const [password, setPassword] = useState("");
@@ -73,6 +87,7 @@ export default function AdminPage() {
   const [newCatName, setNewCatName] = useState("");
   const [newCatAr, setNewCatAr] = useState("");
   const [newCatSlug, setNewCatSlug] = useState("");
+  const [adminReviews, setAdminReviews] = useState<{id:number;customer_name:string;rating:number;comment:string;status:string;created_at:string}[]>([]);
   const [waApproveMsg, setWaApproveMsg] = useState("Hello {name}!\nYour Joud Aloud order has been confirmed.\nTotal: {total} JOD\nOur team will contact you soon. Thank you!");
   const [waDenyMsg, setWaDenyMsg] = useState("Hello {name},\nUnfortunately, your Joud Aloud order has been denied.\nReason: {reason}.\nPlease contact us if a refund is applicable. Thank you.");
 
@@ -81,11 +96,46 @@ export default function AdminPage() {
   const textSub="#7A6A58"; const accent="#8B6F47"; const navBg=dark?"#080808":"#1C1510";
   const inp={width:"100%",padding:"11px 14px",background:dark?"#1E1E1E":"#FDFAF6",border:`1px solid ${border}`,color:text,fontFamily:"Jost,sans-serif",fontSize:14,outline:"none",boxSizing:"border-box" as const};
 
-  useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();fetchCategories();fetchWAMessages();}},[isAuthenticated]);
+  useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();fetchCategories();fetchWAMessages();fetchReviews();}},[isAuthenticated]);
+
+  // Notification sound for new orders — polls every 15 seconds
+  const lastOrderCountRef = useRef(0);
+  const audioRef = useRef<HTMLAudioElement|null>(null);
+  const [bellRing, setBellRing] = useState(false);
+
+  useEffect(()=>{
+    // Create audio element with a base64 beep sound
+    const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVggoqFdVxRaIG0teleQT1dj6atlGlERVuNq6SMaUFEXJCspolkP0Jckq2jiGA9QF6Ur6SHXT1CYZavooNaO0Fkl6+gf1c6QGaZsJ57VDlBaJqxnXhRN0FqnLObd044QmsAAABkYW==");
+    audio.volume = 1;
+    audioRef.current = audio;
+  },[]);
+
+  const playNotification = () => {
+    try {
+      audioRef.current?.play();
+      setBellRing(true);
+      setTimeout(()=>setBellRing(false), 2000);
+    } catch(e) {}
+  };
+  useEffect(()=>{
+    if(!isAuthenticated) return;
+    const interval = setInterval(async()=>{
+      const{data}=await supabase.from("orders").select("id",{count:"exact"}).eq("status","pending");
+      const count = data?.length || 0;
+      if(lastOrderCountRef.current > 0 && count > lastOrderCountRef.current) {
+        playNotification();
+        showMsg(lang==="ar"?"🔔 طلب جديد!":"🔔 New order received!");
+        fetchOrders();
+      }
+      lastOrderCountRef.current = count;
+    }, 15000);
+    return ()=>clearInterval(interval);
+  },[isAuthenticated]);
   const showMsg=(m:string)=>{setToast(m);setTimeout(()=>setToast(""),2500);};
   const fetchProducts=async()=>{const{data}=await supabase.from("products").select("*").order("id",{ascending:true});if(data)setProducts(data);};
   const fetchOrders=async()=>{const{data}=await supabase.from("orders").select("*").order("id",{ascending:false});if(data)setOrders(data);};
   const fetchCategories=async()=>{const{data}=await supabase.from("categories").select("*").order("id",{ascending:true});if(data)setAdminCategories(data);};
+  const fetchReviews=async()=>{const{data}=await supabase.from("reviews").select("*").order("created_at",{ascending:false});if(data)setAdminReviews(data);};
   const fetchWAMessages=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","wa_messages").single();if(data?.value){setWaApproveMsg(data.value.approve||waApproveMsg);setWaDenyMsg(data.value.deny||waDenyMsg);}};
   const fetchSettings=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","shipping_fees").single();if(data?.value)setShippingFees(data.value);};
 
@@ -104,7 +154,7 @@ export default function AdminPage() {
     }
   };
 
-  const resetForm=()=>{setPName("");setPNameAr("");setPEmoji("🪔");setPPrice("");setPDiscount("0");setPDesc("");setPDescAr("");setPCategory("perfume");setPImageFile(null);setPImagePreview("");setPImageKey(k=>k+1);setEditingProduct(null);setShowForm(false);};
+  const resetForm=()=>{setPName("");setPNameAr("");setPEmoji("🪔");setPPrice("");setPDiscount("");setPDesc("");setPDescAr("");setPCategory("perfume");setPImageFile(null);setPImagePreview("");setPImageKey(k=>k+1);setEditingProduct(null);setShowForm(false);};
   const startEdit=(p:Product)=>{setEditingProduct(p);setPName(p.name);setPNameAr(p.nameAr);setPEmoji(p.emoji||"🪔");setPPrice(String(p.price));setPDiscount(String(p.discount));setPDesc(p.desc);setPDescAr(p.descAr);setPCategory(p.category);setPImagePreview(p.image_url||"");setPImageFile(null);setPImageKey(k=>k+1);setShowForm(true);};
 
   const uploadImage=async(file:File):Promise<string|null>=>{
@@ -180,7 +230,7 @@ export default function AdminPage() {
   };
 
   const filteredOrders=orderFilter==="all"?orders:orders.filter(o=>o.status===orderFilter);
-  const revenue=orders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.total_price||0),0);
+  const revenue=+orders.filter(o=>o.status==="delivered").reduce((s,o)=>s+(o.total_price||0),0).toFixed(3);
   const pending=orders.filter(o=>o.status==="pending").length;
 
   const sc:Record<string,{bg:string;text:string}>={
@@ -214,9 +264,15 @@ export default function AdminPage() {
   return(
     <div style={{fontFamily:"Jost,sans-serif",background:bg,minHeight:"100vh",color:text,direction:lang==="ar"?"rtl":"ltr"}}>
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
+      <style>{`@keyframes shake{0%,100%{transform:rotate(0)}20%{transform:rotate(15deg)}40%{transform:rotate(-15deg)}60%{transform:rotate(10deg)}80%{transform:rotate(-10deg)}}`}</style>
       <nav style={{background:navBg,height:64,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 32px",position:"sticky",top:0,zIndex:100}}>
         <span style={{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#E8DFD0",letterSpacing:3}}>JOUD ALOUD</span>
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          {/* Notification bell */}
+          <div onClick={()=>{setActiveTab("orders");setOrderFilter("pending");}} style={{position:"relative",cursor:"pointer",padding:"7px 10px",animation:bellRing?"shake 0.5s ease":"none"}}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D4C4B0" strokeWidth="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+            {pending>0&&<span style={{position:"absolute",top:2,right:4,background:"#EF4444",color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,border:"2px solid "+navBg}}>{pending}</span>}
+          </div>
           <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 16px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="en"?"العربية":"English"}</button>
           <button onClick={()=>setDark(d=>!d)} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 12px",fontSize:16,cursor:"pointer"}}>{dark?"☀️":"🌙"}</button>
           <button onClick={()=>setIsAuthenticated(false)} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 20px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="ar"?"خروج":"Logout"}</button>
@@ -233,8 +289,8 @@ export default function AdminPage() {
             {label:lang==="ar"?"المنتجات":"Products",value:String(products.length),color:text},
           ].map(s=>(
             <div key={s.label} style={{background:cardBg,border:`1px solid ${border}`,padding:"22px 26px"}}>
-              <p style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 10px"}}>{s.label}</p>
-              <p style={{fontFamily:"Cormorant Garamond,serif",fontSize:34,color:s.color,margin:0,lineHeight:1}}>
+              <p style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 10px"}}>{s.label}</p>
+              <p style={{fontFamily:"Jost,sans-serif",fontSize:32,fontWeight:600,color:s.color,margin:0,lineHeight:1}}>
                 {s.value}{(s as any).suffix&&<span style={{fontSize:14,fontFamily:"Jost,sans-serif",marginLeft:4,opacity:0.7}}>{(s as any).suffix}</span>}
               </p>
             </div>
@@ -243,9 +299,9 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:`2px solid ${border}`,marginBottom:28}}>
-          {(["orders","products","settings"] as const).map(t=>(
+          {(["orders","products","reviews","settings"] as const).map(t=>(
             <button key={t} onClick={()=>setActiveTab(t)} style={{background:"none",border:"none",borderBottom:activeTab===t?`3px solid ${accent}`:"3px solid transparent",padding:"14px 28px",fontSize:12,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",color:activeTab===t?text:textSub,fontFamily:"Jost,sans-serif",marginBottom:-2,fontWeight:activeTab===t?600:400}}>
-              {t==="orders"?(lang==="ar"?"الطلبات":"Orders"):t==="products"?(lang==="ar"?"المنتجات":"Products"):(lang==="ar"?"الإعدادات":"Settings")}
+              {t==="orders"?(lang==="ar"?"الطلبات":"Orders"):t==="products"?(lang==="ar"?"المنتجات":"Products"):t==="reviews"?(lang==="ar"?"التقييمات":"Reviews"):(lang==="ar"?"الإعدادات":"Settings")}
             </button>
           ))}
         </div>
@@ -308,7 +364,7 @@ export default function AdminPage() {
                           </div>
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:12}}>
-                          <span style={{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#22C55E"}}>{order.total_price.toFixed(3)} <span style={{fontSize:11,fontFamily:"Jost,sans-serif",opacity:0.7}}>JOD</span></span>
+                          <span style={{fontFamily:"Jost,sans-serif",fontSize:20,fontWeight:700,color:"#22C55E"}}>{order.total_price.toFixed(3)} <span style={{fontSize:11,fontFamily:"Jost,sans-serif",opacity:0.7}}>JOD</span></span>
                           <span style={{color:textSub,fontSize:16,cursor:"pointer"}} onClick={()=>setExpandedOrder(isExpanded?null:order.id)}>{isExpanded?"▲":"▼"}</span>
                         </div>
                       </div>
@@ -325,7 +381,7 @@ export default function AdminPage() {
                               ...(order.notes?[{l:lang==="ar"?"ملاحظات":"Notes",v:order.notes}]:[]),
                             ].map(f=>(
                               <div key={f.l}>
-                                <p style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 3px"}}>{f.l}</p>
+                                <p style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 3px"}}>{f.l}</p>
                                 <p style={{fontSize:13,color:text,margin:0}}>{f.v}</p>
                               </div>
                             ))}
@@ -333,7 +389,7 @@ export default function AdminPage() {
 
                           {/* Items */}
                           <div style={{marginBottom:14}}>
-                            <p style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 8px"}}>{lang==="ar"?"المنتجات":"Items"}</p>
+                            <p style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 8px"}}>{lang==="ar"?"المنتجات":"Items"}</p>
                             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                               {order.items?.map((item:any,i:number)=>(
                                 <span key={i} style={{background:dark?"#1E1E1E":"#F7F2EA",border:`1px solid ${border}`,padding:"5px 12px",fontSize:12,color:textSub}}>
@@ -346,7 +402,7 @@ export default function AdminPage() {
                           {/* Transfer screenshot */}
                           {order.transfer_image_url&&(
                             <div style={{marginBottom:14}}>
-                              <p style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 8px"}}>{lang==="ar"?"لقطة التحويل":"Transfer Screenshot"}</p>
+                              <p style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 8px"}}>{lang==="ar"?"لقطة التحويل":"Transfer Screenshot"}</p>
                               <a href={order.transfer_image_url} target="_blank" rel="noopener noreferrer">
                                 <img src={order.transfer_image_url} alt="transfer" style={{maxWidth:260,maxHeight:160,objectFit:"contain",border:`1px solid ${border}`,cursor:"pointer"}} />
                               </a>
@@ -356,7 +412,7 @@ export default function AdminPage() {
                           {/* Denial reason */}
                           {order.status==="denied"&&order.denial_reason&&(
                             <div style={{background:dark?"#2A0000":"#FEF2F2",border:"1px solid #FCA5A5",padding:"12px 16px",marginBottom:14}}>
-                              <p style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"#EF4444",margin:"0 0 4px"}}>{lang==="ar"?"سبب الرفض":"Denial Reason"}</p>
+                              <p style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"#EF4444",margin:"0 0 4px"}}>{lang==="ar"?"سبب الرفض":"Denial Reason"}</p>
                               <p style={{fontSize:13,color:"#EF4444",margin:"0 0 6px"}}>{order.denial_reason}</p>
                               <p style={{fontSize:11,color:"#EF4444",margin:0,opacity:0.8}}>{lang==="ar"?"رقم العميل:":"Customer:"} {order.phone}</p>
                             </div>
@@ -404,7 +460,7 @@ export default function AdminPage() {
         {activeTab==="products"&&(
           <div>
             <div style={{display:"flex",justifyContent:"flex-end",marginBottom:18}}>
-              {!showForm&&<button onClick={()=>{resetForm();setShowForm(true);}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"12px 28px",fontSize:11,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>{lang==="ar"?"+ إضافة منتج":"+ Add Product"}</button>}
+              {!showForm&&<button onClick={()=>{resetForm();setShowForm(true);}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"12px 28px",fontSize:12,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>{lang==="ar"?"+ إضافة منتج":"+ Add Product"}</button>}
             </div>
             {showForm&&(
               <form onSubmit={handleSaveProduct} style={{background:cardBg,border:`2px solid ${accent}`,padding:"32px 36px",marginBottom:24}}>
@@ -413,7 +469,7 @@ export default function AdminPage() {
                 </h3>
                 {/* Fix #1: image upload with key reset */}
                 <div style={{marginBottom:18}}>
-                  <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:7,display:"block"}}>{lang==="ar"?"صورة المنتج":"Product Image"}</label>
+                  <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:7,display:"block"}}>{lang==="ar"?"صورة المنتج":"Product Image"}</label>
                   <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
                     {pImagePreview
                       ?<div style={{position:"relative",width:90,height:90,flexShrink:0}}><img src={pImagePreview} alt="preview" style={{width:90,height:90,objectFit:"cover",border:`1px solid ${border}`}} /><button type="button" onClick={()=>{setPImagePreview("");setPImageFile(null);setPImageKey(k=>k+1);}} style={{position:"absolute",top:-8,right:-8,background:"#EF4444",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button></div>
@@ -429,14 +485,14 @@ export default function AdminPage() {
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
                   {[{l:lang==="ar"?"الاسم (إنجليزي)":"Name (EN)",v:pName,s:setPName,ph:"Oud Al Layl"},{l:lang==="ar"?"الاسم (عربي)":"Name (AR)",v:pNameAr,s:setPNameAr,ph:"عود الليل"}].map(f=>(
-                    <div key={f.l}><label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{f.l}</label><input value={f.v} onChange={e=>f.s(e.target.value)} placeholder={f.ph} style={inp} /></div>
+                    <div key={f.l}><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{f.l}</label><input value={f.v} onChange={e=>f.s(e.target.value)} placeholder={f.ph} style={inp} /></div>
                   ))}
-                  <div><label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الفئة":"Category"}</label><select value={pCategory} onChange={e=>setPCategory(e.target.value)} style={{...inp}}>{adminCategories.map(c=><option key={c.slug} value={c.slug}>{lang==="ar"?c.name_ar:c.name}</option>)}</select></div>
+                  <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الفئة":"Category"}</label><select value={pCategory} onChange={e=>setPCategory(e.target.value)} style={{...inp}}>{adminCategories.map(c=><option key={c.slug} value={c.slug}>{lang==="ar"?c.name_ar:c.name}</option>)}</select></div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
-                  <div><label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر الأصلي (JOD)":"Original Price"}</label><input value={pPrice} onChange={e=>setPPrice(e.target.value)} placeholder="28" type="number" step="0.001" style={inp} /></div>
-                  <div><label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الخصم %":"Discount %"}</label><input value={pDiscount} onChange={e=>setPDiscount(e.target.value)} placeholder="0" type="number" min="0" max="100" style={inp} /></div>
-                  <div><label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر النهائي":"Final Price"}</label>
+                  <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر الأصلي (JOD)":"Original Price"}</label><input value={pPrice} onChange={e=>setPPrice(e.target.value)} placeholder="28" type="number" step="0.001" style={inp} /></div>
+                  <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الخصم %":"Discount %"}</label><input value={pDiscount} onChange={e=>setPDiscount(e.target.value)} placeholder="0" type="number" min="0" max="100" style={inp} /></div>
+                  <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر النهائي":"Final Price"}</label>
                     <div style={{...inp,background:dark?"#111":"#F0EBE3",display:"flex",alignItems:"center",gap:7}}>
                       {discountPct>0&&<span style={{textDecoration:"line-through",color:textSub,fontSize:12}}>{origPrice.toFixed(3)}</span>}
                       <span style={{color:"#22C55E",fontWeight:700}}>{finalPrice.toFixed(3)} JOD</span>
@@ -446,11 +502,11 @@ export default function AdminPage() {
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
                   {[{l:lang==="ar"?"الوصف (إنجليزي)":"Description (EN)",v:pDesc,s:setPDesc,ph:"Product description...",dir:"ltr"},{l:lang==="ar"?"الوصف (عربي)":"Description (AR)",v:pDescAr,s:setPDescAr,ph:"وصف المنتج...",dir:"rtl"}].map(f=>(
-                    <div key={f.l}><label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{f.l}</label><textarea value={f.v} onChange={e=>f.s(e.target.value)} rows={3} placeholder={f.ph} dir={f.dir} style={{...inp,resize:"vertical" as const}} /></div>
+                    <div key={f.l}><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{f.l}</label><textarea value={f.v} onChange={e=>f.s(e.target.value)} rows={3} placeholder={f.ph} dir={f.dir} style={{...inp,resize:"vertical" as const}} /></div>
                   ))}
                 </div>
                 <div style={{display:"flex",gap:10}}>
-                  <button type="submit" disabled={pImageUploading} style={{background:pImageUploading?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"12px 32px",fontSize:11,letterSpacing:2,textTransform:"uppercase",cursor:pImageUploading?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>{pImageUploading?(lang==="ar"?"جاري الرفع...":"Uploading..."):editingProduct?(lang==="ar"?"حفظ":"Save"):(lang==="ar"?"إضافة":"Add")}</button>
+                  <button type="submit" disabled={pImageUploading} style={{background:pImageUploading?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"12px 32px",fontSize:12,letterSpacing:2,textTransform:"uppercase",cursor:pImageUploading?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>{pImageUploading?(lang==="ar"?"جاري الرفع...":"Uploading..."):editingProduct?(lang==="ar"?"حفظ":"Save"):(lang==="ar"?"إضافة":"Add")}</button>
                   <button type="button" onClick={resetForm} style={{background:"transparent",color:textSub,border:`1px solid ${border}`,padding:"12px 22px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>{lang==="ar"?"إلغاء":"Cancel"}</button>
                 </div>
               </form>
@@ -459,7 +515,7 @@ export default function AdminPage() {
               <table style={{width:"100%",borderCollapse:"collapse"}}>
                 <thead><tr style={{borderBottom:`2px solid ${border}`}}>
                   {(lang==="ar"?["","الاسم","العربي","الفئة","السعر","الخصم","الإجراءات"]:["","Name","Arabic","Category","Price","Discount","Actions"]).map(h=>(
-                    <th key={h} style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,padding:"14px 16px",textAlign:lang==="ar"?"right":"left",fontWeight:500,whiteSpace:"nowrap"}}>{h}</th>
+                    <th key={h} style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,padding:"14px 16px",textAlign:lang==="ar"?"right":"left",fontWeight:500,whiteSpace:"nowrap"}}>{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
@@ -490,71 +546,140 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* ── REVIEWS ── */}
+        {activeTab==="reviews"&&(
+          <div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:28}}>
+              {[
+                {label:lang==="ar"?"إجمالي التقييمات":"Total Reviews",value:adminReviews.length,color:text},
+                {label:lang==="ar"?"قيد المراجعة":"Pending",value:adminReviews.filter(r=>r.status==="pending").length,color:"#F59E0B"},
+                {label:lang==="ar"?"منشور":"Approved",value:adminReviews.filter(r=>r.status==="approved").length,color:"#22C55E"},
+              ].map(s=>(
+                <div key={s.label} style={{background:cardBg,border:`1px solid ${border}`,padding:"18px 22px"}}>
+                  <p style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 8px"}}>{s.label}</p>
+                  <p style={{fontFamily:"Cormorant Garamond,serif",fontSize:28,color:s.color,margin:0}}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div style={{display:"grid",gap:12}}>
+              {adminReviews.map(r=>{
+                const isPending=r.status==="pending";
+                const isApproved=r.status==="approved";
+                return (
+                  <div key={r.id} style={{background:cardBg,borderTop:`1px solid ${border}`,borderBottom:`1px solid ${border}`,borderRight:`1px solid ${border}`,borderLeft:`4px solid ${isPending?"#F59E0B":isApproved?"#22C55E":"#EF4444"}`,padding:"18px 22px",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,flexWrap:"wrap"}}>
+                    <div style={{flex:1,minWidth:200}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
+                        <span style={{fontSize:14,fontWeight:600,color:text}}>{r.customer_name}</span>
+                        <span style={{letterSpacing:2}}>{[1,2,3,4,5].map(i=><span key={i} style={{color:i<=r.rating?"#D4A84B":"#3A3020",fontSize:18,textShadow:i<=r.rating?"0 1px 4px rgba(212,168,75,0.4)":"none"}}>★</span>)}</span>
+                        <span style={{background:isPending?(dark?"#2A1800":"#FEF3C7"):isApproved?(dark?"#002010":"#D1FAE5"):(dark?"#2A0000":"#FEF2F2"),color:isPending?"#F59E0B":isApproved?"#22C55E":"#EF4444",padding:"2px 10px",fontSize:10,letterSpacing:1,textTransform:"uppercase",fontWeight:600}}>{isPending?(lang==="ar"?"قيد المراجعة":"Pending"):isApproved?(lang==="ar"?"منشور":"Approved"):(lang==="ar"?"مرفوض":"Denied")}</span>
+                      </div>
+                      <p style={{fontSize:13,color:textSub,margin:"0 0 6px",lineHeight:1.6}}>"{r.comment}"</p>
+                      <p style={{fontSize:11,color:textSub,margin:0,opacity:0.7}}>{new Date(r.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</p>
+                    </div>
+                    <div style={{display:"flex",gap:8,flexShrink:0}}>
+                      {isPending&&<>
+                        <button onClick={async()=>{await supabase.from("reviews").update({status:"approved"}).eq("id",r.id);fetchReviews();showMsg("Approved");}} style={{background:"#22C55E",color:"#fff",border:"none",padding:"8px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600}}>✓</button>
+                        <button onClick={async()=>{await supabase.from("reviews").update({status:"denied"}).eq("id",r.id);fetchReviews();showMsg("Denied");}} style={{background:dark?"#2A0000":"#FEF2F2",border:"1px solid #EF4444",color:"#EF4444",padding:"8px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600}}>✕</button>
+                      </>}
+                      <button onClick={async()=>{await supabase.from("reviews").delete().eq("id",r.id);fetchReviews();showMsg("Deleted");}} style={{background:"transparent",border:`1px solid ${border}`,color:textSub,padding:"8px 12px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>🗑</button>
+                    </div>
+                  </div>
+                );
+              })}
+              {adminReviews.length===0&&(
+                <div style={{background:cardBg,border:`1px solid ${border}`,padding:60,textAlign:"center",color:textSub,fontSize:14}}>{lang==="ar"?"لا توجد تقييمات":"No reviews yet"}</div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── SETTINGS ── */}
         {activeTab==="settings"&&(
-          <div style={{maxWidth:640}}>
+          <div>
             <h2 style={{fontFamily:"Cormorant Garamond,serif",fontSize:26,fontWeight:300,color:text,marginBottom:28,marginTop:0}}>{lang==="ar"?"الإعدادات":"Settings"}</h2>
 
-            {/* Shipping fees */}
-            <div style={{background:cardBg,border:`1px solid ${border}`,padding:"28px 32px",marginBottom:24}}>
-              <h3 style={{fontSize:14,letterSpacing:2,textTransform:"uppercase",color:accent,margin:"0 0 16px"}}>{lang==="ar"?"رسوم التوصيل":"Delivery Fees"}</h3>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
-                <div>
-                  <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"داخل عمان (JOD)":"Amman (JOD)"}</label>
-                  <input type="number" step="0.001" min="0" value={shippingFees.amman} onChange={e=>setShippingFees(f=>({...f,amman:parseFloat(e.target.value)||0}))} style={inp} />
-                </div>
-                <div>
-                  <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"خارج عمان (JOD)":"Outside Amman (JOD)"}</label>
-                  <input type="number" step="0.001" min="0" value={shippingFees.outside} onChange={e=>setShippingFees(f=>({...f,outside:parseFloat(e.target.value)||0}))} style={inp} />
-                </div>
-              </div>
-              <button onClick={saveSettings} disabled={savingSettings} style={{background:savingSettings?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"11px 28px",fontSize:11,letterSpacing:2,textTransform:"uppercase",cursor:savingSettings?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>
-                {savingSettings?(lang==="ar"?"جاري الحفظ...":"Saving..."):(lang==="ar"?"حفظ":"Save")}
-              </button>
-            </div>
-
-            {/* Categories management */}
-            <div style={{background:cardBg,border:`1px solid ${border}`,padding:"28px 32px",marginBottom:24}}>
-              <h3 style={{fontSize:14,letterSpacing:2,textTransform:"uppercase",color:accent,margin:"0 0 16px"}}>{lang==="ar"?"الفئات":"Categories"}</h3>
-              <div style={{marginBottom:16}}>
-                {adminCategories.map(c=>(
-                  <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${border}`}}>
-                    <div>
-                      <span style={{fontSize:14,color:text,fontWeight:600}}>{c.name}</span>
-                      <span style={{fontSize:12,color:textSub,marginLeft:8,direction:"rtl"}}>{c.name_ar}</span>
-                      <span style={{fontSize:10,color:textSub,marginLeft:8,background:dark?"#1E1E1E":"#F7F2EA",padding:"2px 8px"}}>{c.slug}</span>
+            {/* Transaction History Summary */}
+            <div style={{background:cardBg,border:`1px solid ${border}`,padding:"22px 28px",marginBottom:24}}>
+              <h3 style={{fontSize:13,letterSpacing:2,textTransform:"uppercase",color:accent,margin:"0 0 16px"}}>{lang==="ar"?"سجل المعاملات":"Transaction History"}</h3>
+              <div style={{maxHeight:240,overflowY:"auto"}}>
+                {orders.filter(o=>o.status==="delivered"||o.status==="confirmed"||o.status==="shipped").map((o,i)=>(
+                  <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${border}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:11,color:textSub,width:24,textAlign:"center",fontWeight:600}}>{i+1}</span>
+                      <span style={{fontSize:13,color:text}}>{o.customer_name}</span>
+                      <span style={{fontSize:10,color:textSub,background:dark?"#1E1E1E":"#F7F2EA",padding:"2px 8px"}}>{o.payment_method}</span>
                     </div>
-                    <button onClick={async()=>{if(!confirm("Delete?"))return;await supabase.from("categories").delete().eq("id",c.id);fetchCategories();}} style={{background:"transparent",border:"1px solid #EF4444",color:"#EF4444",padding:"4px 12px",fontSize:10,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>x</button>
+                    <span style={{fontSize:14,color:"#22C55E",fontWeight:600}}>{typeof o.total_price==="number"?o.total_price.toFixed(3):o.total_price} JOD</span>
                   </div>
                 ))}
+                {orders.filter(o=>o.status==="delivered"||o.status==="confirmed"||o.status==="shipped").length===0&&(
+                  <p style={{color:textSub,fontSize:12,textAlign:"center",padding:20}}>{lang==="ar"?"لا توجد معاملات":"No transactions yet"}</p>
+                )}
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}}>
-                <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="Name (EN)" style={inp} />
-                <input value={newCatAr} onChange={e=>setNewCatAr(e.target.value)} placeholder="الاسم (عربي)" dir="rtl" style={inp} />
-                <input value={newCatSlug} onChange={e=>setNewCatSlug(e.target.value.toLowerCase().replace(/\s+/g,"-"))} placeholder="slug" style={inp} />
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:12,paddingTop:12,borderTop:`2px solid ${accent}`}}>
+                <span style={{fontSize:12,letterSpacing:2,textTransform:"uppercase",color:accent,fontWeight:600}}>{lang==="ar"?"الإجمالي":"Total Revenue"}</span>
+                <span style={{fontFamily:"Jost,sans-serif",fontSize:22,fontWeight:700,color:"#22C55E"}}>{revenue.toFixed(3)} JOD</span>
               </div>
-              <button onClick={async()=>{if(!newCatName||!newCatSlug)return;await supabase.from("categories").insert([{name:newCatName,name_ar:newCatAr,slug:newCatSlug}]);setNewCatName("");setNewCatAr("");setNewCatSlug("");fetchCategories();showMsg("Category added");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
-                {lang==="ar"?"+ إضافة فئة":"+ Add Category"}
-              </button>
             </div>
 
-            {/* WhatsApp messages */}
-            <div style={{background:cardBg,border:`1px solid ${border}`,padding:"28px 32px"}}>
-              <h3 style={{fontSize:14,letterSpacing:2,textTransform:"uppercase",color:accent,margin:"0 0 8px"}}>{lang==="ar"?"رسائل واتساب":"WhatsApp Messages"}</h3>
-              <p style={{fontSize:11,color:textSub,marginBottom:16}}>
-                {lang==="ar"?"استخدم {name} لاسم العميل, {total} للإجمالي, {reason} لسبب الرفض":"Use {name} for customer name, {total} for total, {reason} for denial reason"}
-              </p>
-              <div style={{marginBottom:16}}>
-                <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"رسالة القبول":"Approval Message"}</label>
-                <textarea value={waApproveMsg} onChange={e=>setWaApproveMsg(e.target.value)} rows={5} style={{...inp,resize:"vertical" as const}} />
-              </div>
-              <div style={{marginBottom:16}}>
-                <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"رسالة الرفض":"Denial Message"}</label>
-                <textarea value={waDenyMsg} onChange={e=>setWaDenyMsg(e.target.value)} rows={5} style={{...inp,resize:"vertical" as const}} />
-              </div>
-              <button onClick={async()=>{const{data}=await supabase.from("settings").select("*").eq("key","wa_messages").single();if(data){await supabase.from("settings").update({value:{approve:waApproveMsg,deny:waDenyMsg}}).eq("key","wa_messages");}else{await supabase.from("settings").insert([{key:"wa_messages",value:{approve:waApproveMsg,deny:waDenyMsg}}]);}showMsg("Messages saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"11px 28px",fontSize:11,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
-                {lang==="ar"?"حفظ الرسائل":"Save Messages"}
-              </button>
+            {/* Two-column settings */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+
+              {/* Delivery Fees */}
+              <SettingsCard title={lang==="ar"?"رسوم التوصيل":"Delivery Fees"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
+                <div style={{display:"grid",gap:12,marginBottom:14}}>
+                  <div>
+                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"عمان (JOD)":"Amman (JOD)"}</label>
+                    <input type="number" step="0.001" min="0" value={shippingFees.amman} onChange={e=>setShippingFees(f=>({...f,amman:parseFloat(e.target.value)||0}))} style={inp} />
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"خارج عمان (JOD)":"Outside (JOD)"}</label>
+                    <input type="number" step="0.001" min="0" value={shippingFees.outside} onChange={e=>setShippingFees(f=>({...f,outside:parseFloat(e.target.value)||0}))} style={inp} />
+                  </div>
+                </div>
+                <button onClick={saveSettings} disabled={savingSettings} style={{background:savingSettings?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:savingSettings?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>
+                  {savingSettings?(lang==="ar"?"حفظ...":"Saving..."):(lang==="ar"?"حفظ":"Save")}
+                </button>
+              </SettingsCard>
+
+              {/* Categories */}
+              <SettingsCard title={lang==="ar"?"الفئات":"Categories"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
+                <div style={{marginBottom:12}}>
+                  {adminCategories.map(c=>(
+                    <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${border}`}}>
+                      <div><span style={{fontSize:13,color:text,fontWeight:600}}>{c.name}</span> <span style={{fontSize:11,color:textSub,direction:"rtl"}}>{c.name_ar}</span></div>
+                      <button onClick={async()=>{await supabase.from("categories").delete().eq("id",c.id);fetchCategories();}} style={{background:"transparent",border:"none",color:"#EF4444",padding:"2px 8px",fontSize:12,cursor:"pointer"}}>x</button>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                  <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="Name" style={{...inp,fontSize:12,padding:"8px 10px"}} />
+                  <input value={newCatAr} onChange={e=>setNewCatAr(e.target.value)} placeholder="عربي" dir="rtl" style={{...inp,fontSize:12,padding:"8px 10px"}} />
+                </div>
+                <input value={newCatSlug} onChange={e=>setNewCatSlug(e.target.value.toLowerCase().replace(/\s+/g,"-"))} placeholder="slug (e.g. bakhoor)" style={{...inp,fontSize:12,padding:"8px 10px",marginBottom:10}} />
+                <button onClick={async()=>{if(!newCatName||!newCatSlug)return;await supabase.from("categories").insert([{name:newCatName,name_ar:newCatAr,slug:newCatSlug}]);setNewCatName("");setNewCatAr("");setNewCatSlug("");fetchCategories();showMsg("Added");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 20px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                  + {lang==="ar"?"إضافة":"Add"}
+                </button>
+              </SettingsCard>
+
+              {/* WhatsApp Approve Message */}
+              <SettingsCard title={lang==="ar"?"رسالة القبول":"Approve Message"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
+                <p style={{fontSize:10,color:textSub,marginBottom:8}}>{"{name}"} = customer, {"{total}"} = total</p>
+                <textarea value={waApproveMsg} onChange={e=>setWaApproveMsg(e.target.value)} rows={4} style={{...inp,resize:"vertical" as const,fontSize:12,marginBottom:10}} />
+                <button onClick={async()=>{const{data}=await supabase.from("settings").select("*").eq("key","wa_messages").single();if(data){await supabase.from("settings").update({value:{approve:waApproveMsg,deny:waDenyMsg}}).eq("key","wa_messages");}else{await supabase.from("settings").insert([{key:"wa_messages",value:{approve:waApproveMsg,deny:waDenyMsg}}]);}showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                  {lang==="ar"?"حفظ":"Save"}
+                </button>
+              </SettingsCard>
+
+              {/* WhatsApp Deny Message */}
+              <SettingsCard title={lang==="ar"?"رسالة الرفض":"Deny Message"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
+                <p style={{fontSize:10,color:textSub,marginBottom:8}}>{"{name}"} = customer, {"{reason}"} = reason</p>
+                <textarea value={waDenyMsg} onChange={e=>setWaDenyMsg(e.target.value)} rows={4} style={{...inp,resize:"vertical" as const,fontSize:12,marginBottom:10}} />
+                <button onClick={async()=>{const{data}=await supabase.from("settings").select("*").eq("key","wa_messages").single();if(data){await supabase.from("settings").update({value:{approve:waApproveMsg,deny:waDenyMsg}}).eq("key","wa_messages");}else{await supabase.from("settings").insert([{key:"wa_messages",value:{approve:waApproveMsg,deny:waDenyMsg}}]);}showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                  {lang==="ar"?"حفظ":"Save"}
+                </button>
+              </SettingsCard>
             </div>
           </div>
         )}
@@ -566,7 +691,7 @@ export default function AdminPage() {
           <div style={{background:cardBg,border:`1px solid ${border}`,padding:"32px 36px",width:"100%",maxWidth:420}}>
             <h3 style={{fontFamily:"Cormorant Garamond,serif",fontSize:22,fontWeight:300,color:text,marginBottom:6,marginTop:0}}>{lang==="ar"?"رفض الطلب":"Deny Order"}</h3>
             <p style={{fontSize:12,color:textSub,marginBottom:16}}>{lang==="ar"?"رقم العميل:":"Customer phone:"} <strong style={{color:text}}>{denyModal.phone}</strong></p>
-            <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"سبب الرفض *":"Reason *"}</label>
+            <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"سبب الرفض *":"Reason *"}</label>
             <select value={denyReason} onChange={e=>setDenyReason(e.target.value)} style={{...inp,marginBottom:16}}>
               <option value="">{lang==="ar"?"-- اختر سببًا --":"-- Select reason --"}</option>
               <option value={lang==="ar"?"المنتج غير متوفر حاليًا":"Product currently out of stock"}>{lang==="ar"?"المنتج غير متوفر":"Out of stock"}</option>
