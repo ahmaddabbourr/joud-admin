@@ -69,16 +69,24 @@ export default function AdminPage() {
   // Settings — Fix #12: shipping fees editable
   const [shippingFees, setShippingFees] = useState({amman:0,outside:2});
   const [savingSettings, setSavingSettings] = useState(false);
+  const [adminCategories, setAdminCategories] = useState<{id:number;name:string;name_ar:string;slug:string}[]>([]);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatAr, setNewCatAr] = useState("");
+  const [newCatSlug, setNewCatSlug] = useState("");
+  const [waApproveMsg, setWaApproveMsg] = useState("Hello {name}!\nYour Joud Aloud order has been confirmed.\nTotal: {total} JOD\nOur team will contact you soon. Thank you!");
+  const [waDenyMsg, setWaDenyMsg] = useState("Hello {name},\nUnfortunately, your Joud Aloud order has been denied.\nReason: {reason}.\nPlease contact us if a refund is applicable. Thank you.");
 
   const bg=dark?"#0D0D0D":"#F7F4EF"; const cardBg=dark?"#161616":"#FFFFFF";
   const border=dark?"#252525":"#E5DDD0"; const text=dark?"#EDE8E0":"#1C1510";
   const textSub="#7A6A58"; const accent="#8B6F47"; const navBg=dark?"#080808":"#1C1510";
   const inp={width:"100%",padding:"11px 14px",background:dark?"#1E1E1E":"#FDFAF6",border:`1px solid ${border}`,color:text,fontFamily:"Jost,sans-serif",fontSize:14,outline:"none",boxSizing:"border-box" as const};
 
-  useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();}},[isAuthenticated]);
+  useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();fetchCategories();fetchWAMessages();}},[isAuthenticated]);
   const showMsg=(m:string)=>{setToast(m);setTimeout(()=>setToast(""),2500);};
   const fetchProducts=async()=>{const{data}=await supabase.from("products").select("*").order("id",{ascending:true});if(data)setProducts(data);};
   const fetchOrders=async()=>{const{data}=await supabase.from("orders").select("*").order("id",{ascending:false});if(data)setOrders(data);};
+  const fetchCategories=async()=>{const{data}=await supabase.from("categories").select("*").order("id",{ascending:true});if(data)setAdminCategories(data);};
+  const fetchWAMessages=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","wa_messages").single();if(data?.value){setWaApproveMsg(data.value.approve||waApproveMsg);setWaDenyMsg(data.value.deny||waDenyMsg);}};
   const fetchSettings=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","shipping_fees").single();if(data?.value)setShippingFees(data.value);};
 
   // Fix #7: different message on each wrong attempt
@@ -132,17 +140,13 @@ export default function AdminPage() {
 
   // WhatsApp: send confirm message to customer
   const waConfirm=(order:Order)=>{
-    const en=`Hello ${order.customer_name}!\nYour Joud Oud order has been confirmed.\nTotal: ${order.total_price} JOD\nOur team will contact you soon. Thank you!`;
-    const ar_msg=`مرحبا ${order.customer_name}!\nتم تأكيد طلبك من جود العود.\nالاجمالي: ${order.total_price} دينار اردني\nسيتواصل معك فريقنا قريبا. شكرا لك!`;
-    window.open(`https://wa.me/${order.phone.replace(/\D/g,"")}?text=${encodeURIComponent(en+"\n----------\n"+ar_msg)}`,"_blank");
+    const msg=waApproveMsg.replace(/{name}/g,order.customer_name).replace(/{total}/g,String(typeof order.total_price==="number"?order.total_price.toFixed(3):order.total_price));
+    window.open(`https://wa.me/${order.phone.replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`,"_blank");
   };
-  // WhatsApp: send deny message to customer
   const waDeny=(order:Order,reason:string)=>{
-    const en=`Hello ${order.customer_name},\n\nUnfortunately, your Joud Oud order has been denied.\nReason: ${reason}.\nPlease contact us if a refund is applicable. Thank you.`;
-    const ar_msg=`مرحبا ${order.customer_name}،\n\nللاسف، تم رفض طلبك من جود العود.\nالسبب: ${reason}.\nيرجى التواصل معنا في حال استحقاق استرداد المبلغ. شكرا لك.`;
-    window.open(`https://wa.me/${order.phone.replace(/\D/g,"")}?text=${encodeURIComponent(en+"\n----------\n"+ar_msg)}`,"_blank");
+    const msg=waDenyMsg.replace(/{name}/g,order.customer_name).replace(/{reason}/g,reason);
+    window.open(`https://wa.me/${order.phone.replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`,"_blank");
   };
-
   // Delete order — uses custom modal
   const deleteOrder=(id:number)=>setDeleteModal({type:"single",id});
   const bulkDeleteStart=()=>setDeleteModal({type:"bulk",count:selectedOrders.size});
@@ -196,7 +200,7 @@ export default function AdminPage() {
       </div>
       <form onSubmit={handleLogin} style={{background:cardBg,border:`1px solid ${border}`,padding:"52px 44px",width:380,textAlign:"center"}}>
         <p style={{fontSize:10,letterSpacing:4,textTransform:"uppercase",color:accent,marginBottom:10}}>{lang==="ar"?"بوابة الإدارة":"Admin Portal"}</p>
-        <h1 style={{fontFamily:"Cormorant Garamond,serif",fontSize:34,fontWeight:300,color:text,marginBottom:6,letterSpacing:2}}>JOUD·OUD</h1>
+        <h1 style={{fontFamily:"Cormorant Garamond,serif",fontSize:34,fontWeight:300,color:text,marginBottom:6,letterSpacing:2}}>JOUD ALOUD</h1>
         <p style={{fontSize:12,color:textSub,marginBottom:32}}>{lang==="ar"?"سجّل دخولك":"Sign in to manage your store"}</p>
         <input value={username} onChange={e=>{setUsername(e.target.value);setLoginError("");}} placeholder={lang==="ar"?"اسم المستخدم":"Username"} style={{...inp,marginBottom:12}} />
         <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder={lang==="ar"?"كلمة المرور":"Password"} style={{...inp,marginBottom:loginError?0:18}} />
@@ -211,7 +215,7 @@ export default function AdminPage() {
     <div style={{fontFamily:"Jost,sans-serif",background:bg,minHeight:"100vh",color:text,direction:lang==="ar"?"rtl":"ltr"}}>
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
       <nav style={{background:navBg,height:64,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 32px",position:"sticky",top:0,zIndex:100}}>
-        <span style={{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#E8DFD0",letterSpacing:3}}>JOUD·OUD</span>
+        <span style={{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#E8DFD0",letterSpacing:3}}>JOUD ALOUD</span>
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
           <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 16px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="en"?"العربية":"English"}</button>
           <button onClick={()=>setDark(d=>!d)} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 12px",fontSize:16,cursor:"pointer"}}>{dark?"☀️":"🌙"}</button>
@@ -304,7 +308,7 @@ export default function AdminPage() {
                           </div>
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:12}}>
-                          <span style={{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#22C55E"}}>{order.total_price} <span style={{fontSize:11,fontFamily:"Jost,sans-serif",opacity:0.7}}>JOD</span></span>
+                          <span style={{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#22C55E"}}>{order.total_price.toFixed(3)} <span style={{fontSize:11,fontFamily:"Jost,sans-serif",opacity:0.7}}>JOD</span></span>
                           <span style={{color:textSub,fontSize:16,cursor:"pointer"}} onClick={()=>setExpandedOrder(isExpanded?null:order.id)}>{isExpanded?"▲":"▼"}</span>
                         </div>
                       </div>
@@ -427,7 +431,7 @@ export default function AdminPage() {
                   {[{l:lang==="ar"?"الاسم (إنجليزي)":"Name (EN)",v:pName,s:setPName,ph:"Oud Al Layl"},{l:lang==="ar"?"الاسم (عربي)":"Name (AR)",v:pNameAr,s:setPNameAr,ph:"عود الليل"}].map(f=>(
                     <div key={f.l}><label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{f.l}</label><input value={f.v} onChange={e=>f.s(e.target.value)} placeholder={f.ph} style={inp} /></div>
                   ))}
-                  <div><label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الفئة":"Category"}</label><select value={pCategory} onChange={e=>setPCategory(e.target.value)} style={{...inp}}><option value="perfume">{lang==="ar"?"عطور":"Perfume"}</option><option value="accessory">{lang==="ar"?"إكسسوارات":"Accessory"}</option></select></div>
+                  <div><label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الفئة":"Category"}</label><select value={pCategory} onChange={e=>setPCategory(e.target.value)} style={{...inp}}>{adminCategories.map(c=><option key={c.slug} value={c.slug}>{lang==="ar"?c.name_ar:c.name}</option>)}</select></div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
                   <div><label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر الأصلي (JOD)":"Original Price"}</label><input value={pPrice} onChange={e=>setPPrice(e.target.value)} placeholder="28" type="number" step="0.001" style={inp} /></div>
@@ -486,30 +490,70 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ── SETTINGS — Fix #12 ── */}
+        {/* ── SETTINGS ── */}
         {activeTab==="settings"&&(
-          <div style={{maxWidth:480}}>
-            <h2 style={{fontFamily:"Cormorant Garamond,serif",fontSize:26,fontWeight:300,color:text,marginBottom:24,marginTop:0}}>{lang==="ar"?"إعدادات التوصيل":"Delivery Settings"}</h2>
+          <div style={{maxWidth:640}}>
+            <h2 style={{fontFamily:"Cormorant Garamond,serif",fontSize:26,fontWeight:300,color:text,marginBottom:28,marginTop:0}}>{lang==="ar"?"الإعدادات":"Settings"}</h2>
+
+            {/* Shipping fees */}
+            <div style={{background:cardBg,border:`1px solid ${border}`,padding:"28px 32px",marginBottom:24}}>
+              <h3 style={{fontSize:14,letterSpacing:2,textTransform:"uppercase",color:accent,margin:"0 0 16px"}}>{lang==="ar"?"رسوم التوصيل":"Delivery Fees"}</h3>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
+                <div>
+                  <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"داخل عمان (JOD)":"Amman (JOD)"}</label>
+                  <input type="number" step="0.001" min="0" value={shippingFees.amman} onChange={e=>setShippingFees(f=>({...f,amman:parseFloat(e.target.value)||0}))} style={inp} />
+                </div>
+                <div>
+                  <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"خارج عمان (JOD)":"Outside Amman (JOD)"}</label>
+                  <input type="number" step="0.001" min="0" value={shippingFees.outside} onChange={e=>setShippingFees(f=>({...f,outside:parseFloat(e.target.value)||0}))} style={inp} />
+                </div>
+              </div>
+              <button onClick={saveSettings} disabled={savingSettings} style={{background:savingSettings?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"11px 28px",fontSize:11,letterSpacing:2,textTransform:"uppercase",cursor:savingSettings?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>
+                {savingSettings?(lang==="ar"?"جاري الحفظ...":"Saving..."):(lang==="ar"?"حفظ":"Save")}
+              </button>
+            </div>
+
+            {/* Categories management */}
+            <div style={{background:cardBg,border:`1px solid ${border}`,padding:"28px 32px",marginBottom:24}}>
+              <h3 style={{fontSize:14,letterSpacing:2,textTransform:"uppercase",color:accent,margin:"0 0 16px"}}>{lang==="ar"?"الفئات":"Categories"}</h3>
+              <div style={{marginBottom:16}}>
+                {adminCategories.map(c=>(
+                  <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${border}`}}>
+                    <div>
+                      <span style={{fontSize:14,color:text,fontWeight:600}}>{c.name}</span>
+                      <span style={{fontSize:12,color:textSub,marginLeft:8,direction:"rtl"}}>{c.name_ar}</span>
+                      <span style={{fontSize:10,color:textSub,marginLeft:8,background:dark?"#1E1E1E":"#F7F2EA",padding:"2px 8px"}}>{c.slug}</span>
+                    </div>
+                    <button onClick={async()=>{if(!confirm("Delete?"))return;await supabase.from("categories").delete().eq("id",c.id);fetchCategories();}} style={{background:"transparent",border:"1px solid #EF4444",color:"#EF4444",padding:"4px 12px",fontSize:10,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>x</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}}>
+                <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="Name (EN)" style={inp} />
+                <input value={newCatAr} onChange={e=>setNewCatAr(e.target.value)} placeholder="الاسم (عربي)" dir="rtl" style={inp} />
+                <input value={newCatSlug} onChange={e=>setNewCatSlug(e.target.value.toLowerCase().replace(/\s+/g,"-"))} placeholder="slug" style={inp} />
+              </div>
+              <button onClick={async()=>{if(!newCatName||!newCatSlug)return;await supabase.from("categories").insert([{name:newCatName,name_ar:newCatAr,slug:newCatSlug}]);setNewCatName("");setNewCatAr("");setNewCatSlug("");fetchCategories();showMsg("Category added");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                {lang==="ar"?"+ إضافة فئة":"+ Add Category"}
+              </button>
+            </div>
+
+            {/* WhatsApp messages */}
             <div style={{background:cardBg,border:`1px solid ${border}`,padding:"28px 32px"}}>
-              <p style={{fontSize:12,color:textSub,marginBottom:24,lineHeight:1.6}}>
-                {lang==="ar"?"حدد تكلفة الشحن لكل منطقة. سيتم عرض هذه الأسعار للعملاء عند الدفع.":"Set the shipping cost per zone. These prices will be shown to customers at checkout."}
+              <h3 style={{fontSize:14,letterSpacing:2,textTransform:"uppercase",color:accent,margin:"0 0 8px"}}>{lang==="ar"?"رسائل واتساب":"WhatsApp Messages"}</h3>
+              <p style={{fontSize:11,color:textSub,marginBottom:16}}>
+                {lang==="ar"?"استخدم {name} لاسم العميل, {total} للإجمالي, {reason} لسبب الرفض":"Use {name} for customer name, {total} for total, {reason} for denial reason"}
               </p>
-              <div style={{marginBottom:18}}>
-                <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"داخل عمان (JOD)":"Amman Shipping (JOD)"}</label>
-                <input type="number" step="0.001" min="0" value={shippingFees.amman} onChange={e=>setShippingFees(f=>({...f,amman:parseFloat(e.target.value)||0}))} style={inp} />
-                <p style={{fontSize:11,color:textSub,marginTop:4}}>{lang==="ar"?"اكتب 0 للشحن المجاني":"Enter 0 for free shipping"}</p>
+              <div style={{marginBottom:16}}>
+                <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"رسالة القبول":"Approval Message"}</label>
+                <textarea value={waApproveMsg} onChange={e=>setWaApproveMsg(e.target.value)} rows={5} style={{...inp,resize:"vertical" as const}} />
               </div>
-              <div style={{marginBottom:24}}>
-                <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"خارج عمان (JOD)":"Outside Amman (JOD)"}</label>
-                <input type="number" step="0.001" min="0" value={shippingFees.outside} onChange={e=>setShippingFees(f=>({...f,outside:parseFloat(e.target.value)||0}))} style={inp} />
+              <div style={{marginBottom:16}}>
+                <label style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:6,display:"block"}}>{lang==="ar"?"رسالة الرفض":"Denial Message"}</label>
+                <textarea value={waDenyMsg} onChange={e=>setWaDenyMsg(e.target.value)} rows={5} style={{...inp,resize:"vertical" as const}} />
               </div>
-              <div style={{background:dark?"#1E1E1E":"#F7F2EA",border:`1px solid ${border}`,padding:"14px 16px",marginBottom:20}}>
-                <p style={{fontSize:12,color:textSub,margin:"0 0 6px"}}>{lang==="ar"?"معاينة:":"Preview:"}</p>
-                <p style={{fontSize:13,color:text,margin:"0 0 4px"}}>🏙️ {lang==="ar"?"عمان":"Amman"}: <strong style={{color:"#22C55E"}}>{shippingFees.amman===0?(lang==="ar"?"مجاني":"Free"):`${shippingFees.amman.toFixed(3)} JOD`}</strong></p>
-                <p style={{fontSize:13,color:text,margin:0}}>🗺️ {lang==="ar"?"خارج عمان":"Outside Amman"}: <strong style={{color:"#22C55E"}}>{shippingFees.outside===0?(lang==="ar"?"مجاني":"Free"):`${shippingFees.outside.toFixed(3)} JOD`}</strong></p>
-              </div>
-              <button onClick={saveSettings} disabled={savingSettings} style={{background:savingSettings?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"13px 32px",fontSize:11,letterSpacing:2,textTransform:"uppercase",cursor:savingSettings?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>
-                {savingSettings?(lang==="ar"?"جاري الحفظ...":"Saving..."):(lang==="ar"?"حفظ الإعدادات":"Save Settings")}
+              <button onClick={async()=>{const{data}=await supabase.from("settings").select("*").eq("key","wa_messages").single();if(data){await supabase.from("settings").update({value:{approve:waApproveMsg,deny:waDenyMsg}}).eq("key","wa_messages");}else{await supabase.from("settings").insert([{key:"wa_messages",value:{approve:waApproveMsg,deny:waDenyMsg}}]);}showMsg("Messages saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"11px 28px",fontSize:11,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                {lang==="ar"?"حفظ الرسائل":"Save Messages"}
               </button>
             </div>
           </div>
