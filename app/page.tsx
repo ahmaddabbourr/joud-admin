@@ -1,9 +1,8 @@
 "use client";
 import { supabase } from "../supabase";
+import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-
-const ADMIN_USER = "joud11";
-const ADMIN_PASS = "joud202611";
+import { saveProduct, deleteProduct, toggleProductStock, uploadProductImage, setOrderStatus, setOrdersStatusBulk, deleteOrders, saveSetting, addCategory, deleteCategory, setReviewStatus, deleteReview } from "./actions";
 
 type Order = {
   id: number; created_at: string; customer_name: string; phone: string;
@@ -54,10 +53,9 @@ function SettingsCard({title,accent,cardBg,border,text,dark,children}:{title:str
 }
 
 export default function AdminPage() {
+  const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [username, setUsername] = useState(""); const [password, setPassword] = useState("");
-  // Fix #7: track attempt count to show new message each time
-  const [loginError, setLoginError] = useState(""); const [loginAttempts, setLoginAttempts] = useState(0);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [activeTab, setActiveTab] = useState<"orders"|"products"|"reviews"|"settings">("orders");
   const [dark, setDark] = useState(false); const [lang, setLang] = useState<"en"|"ar">("en");
   const [adminMenu, setAdminMenu] = useState(false);
@@ -98,6 +96,19 @@ export default function AdminPage() {
   const textSub="#7A6A58"; const accent="#8B6F47"; const navBg=dark?"#080808":"#1C1510";
   const inp={width:"100%",padding:"11px 14px",background:dark?"#1E1E1E":"#FDFAF6",border:`1px solid ${border}`,color:text,fontFamily:"Jost,sans-serif",fontSize:14,outline:"none",boxSizing:"border-box" as const};
 
+  useEffect(()=>{
+    supabase.auth.getUser().then(({data:{user}})=>{
+      setIsAuthenticated(!!user);
+      setCheckingSession(false);
+      if(!user)router.replace("/login");
+    });
+    const{data:sub}=supabase.auth.onAuthStateChange((_event,session)=>{
+      setIsAuthenticated(!!session?.user);
+      if(!session?.user)router.replace("/login");
+    });
+    return()=>sub.subscription.unsubscribe();
+  },[]);
+  const handleLogout=async()=>{await supabase.auth.signOut();router.replace("/login");};
   useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();fetchCategories();fetchWAMessages();fetchReviews();}},[isAuthenticated]);
 
   // Notification sound for new orders — polls every 15 seconds
@@ -142,29 +153,14 @@ export default function AdminPage() {
   const fetchSettings=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","shipping_fees").single();if(data?.value)setShippingFees(data.value);};
 
   // Fix #7: different message on each wrong attempt
-  const handleLogin=(e:React.FormEvent)=>{
-    e.preventDefault();
-    if(username===ADMIN_USER && password===ADMIN_PASS){setIsAuthenticated(true);setLoginError("");}
-    else{
-      const attempts=loginAttempts+1;
-      setLoginAttempts(attempts);
-      const msgs_en=["Wrong username or password","Still incorrect — please try again","Incorrect credentials again","Are you sure about those details?"];
-      const msgs_ar=["اسم المستخدم أو كلمة المرور غير صحيحة","لا تزال غير صحيحة، حاول مرة أخرى","بيانات خاطئة مرة أخرى","هل أنت متأكد من هذه البيانات؟"];
-      const idx=Math.min(attempts-1,3);
-      setLoginError(lang==="ar"?msgs_ar[idx]:msgs_en[idx]);
-      setPassword("");
-    }
-  };
-
   const resetForm=()=>{setPName("");setPNameAr("");setPEmoji("🪔");setPPrice("");setPDiscount("");setPDesc("");setPDescAr("");setPCategory("perfume");setPImageFile(null);setPImagePreview("");setPImageKey(k=>k+1);setEditingProduct(null);setShowForm(false);};
   const startEdit=(p:Product)=>{setEditingProduct(p);setPName(p.name);setPNameAr(p.nameAr);setPEmoji(p.emoji||"🪔");setPPrice(String(p.price));setPDiscount(String(p.discount));setPDesc(p.desc);setPDescAr(p.descAr);setPCategory(p.category);setPImagePreview(p.image_url||"");setPImageFile(null);setPImageKey(k=>k+1);setShowForm(true);};
 
   const uploadImage=async(file:File):Promise<string|null>=>{
-    const ext=(file.name.split(".").pop()||"jpg").toLowerCase();
-    const path=`products/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const{error}=await supabase.storage.from("product-images").upload(path,file,{upsert:true,contentType:file.type});
-    if(error){showMsg("Upload failed: "+error.message);return null;}
-    return supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl;
+    try{
+      const fd=new FormData();fd.append("file",file);
+      return await uploadProductImage(fd);
+    }catch(e:any){showMsg("Upload failed: "+e.message);return null;}
   };
 
   const origPrice=parseFloat(pPrice)||0;
@@ -177,23 +173,21 @@ export default function AdminPage() {
     let image_url=pImagePreview&&!pImagePreview.startsWith("data:")?pImagePreview:(editingProduct?.image_url||"");
     if(pImageFile){setPImageUploading(true);const url=await uploadImage(pImageFile);setPImageUploading(false);if(!url)return;image_url=url;}
     const payload={name:pName,nameAr:pNameAr,emoji:pEmoji,image_url,price:finalPrice,original_price:origPrice,discount:discountPct,desc:pDesc,descAr:pDescAr,category:pCategory};
-    if(editingProduct){const{error}=await supabase.from("products").update(payload).eq("id",editingProduct.id);if(!error){showMsg("Updated!");fetchProducts();resetForm();}else showMsg(error.message);}
-    else{const{error}=await supabase.from("products").insert([payload]);if(!error){showMsg("Added!");fetchProducts();resetForm();}else showMsg(error.message);}
+    try{await saveProduct(payload,editingProduct?.id);showMsg(editingProduct?"Updated!":"Added!");fetchProducts();resetForm();}catch(e:any){showMsg(e.message);}
   };
   const handleDeleteProduct=async(id:number)=>{
     if(!confirm(lang==="ar"?"حذف هذا المنتج؟":"Delete this product?"))return;
-    const{error}=await supabase.from("products").delete().eq("id",id);
-    if(!error){showMsg("Deleted");fetchProducts();}
+    try{await deleteProduct(id);showMsg("Deleted");fetchProducts();}catch(e:any){showMsg(e.message);}
   };
   const toggleStock=async(id:number,field:"out_of_stock"|"sold_out",current:boolean)=>{
-    await supabase.from("products").update({[field]:!current,[field==="out_of_stock"?"sold_out":"out_of_stock"]:false}).eq("id",id);
+    await toggleProductStock(id,field,current);
     showMsg(!current?(field==="out_of_stock"?(lang==="ar"?"غير متوفر":"Out of stock"):(lang==="ar"?"تم البيع":"Sold out")):(lang==="ar"?"متوفر":"Available"));
     fetchProducts();
   };
 
-  const approveOrder=async(id:number)=>{await supabase.from("orders").update({status:"confirmed"}).eq("id",id);showMsg(lang==="ar"?"تم القبول":"Approved");fetchOrders();};
-  const advanceStatus=async(order:Order)=>{const next=STATUS_FLOW[order.status];if(!next)return;await supabase.from("orders").update({status:next}).eq("id",order.id);showMsg(`→ ${next}`);fetchOrders();};
-  const denyOrder=async()=>{if(!denyModal)return;await supabase.from("orders").update({status:"denied",denial_reason:denyReason}).eq("id",denyModal.id);showMsg(lang==="ar"?"تم الرفض":"Denied");setDenyModal(null);setDenyReason("");fetchOrders();};
+  const approveOrder=async(id:number)=>{await setOrderStatus(id,"confirmed");showMsg(lang==="ar"?"تم القبول":"Approved");fetchOrders();};
+  const advanceStatus=async(order:Order)=>{const next=STATUS_FLOW[order.status];if(!next)return;await setOrderStatus(order.id,next);showMsg(`→ ${next}`);fetchOrders();};
+  const denyOrder=async()=>{if(!denyModal)return;await setOrderStatus(denyModal.id,"denied",denyReason);showMsg(lang==="ar"?"تم الرفض":"Denied");setDenyModal(null);setDenyReason("");fetchOrders();};
 
   // WhatsApp: send confirm message to customer
   const waConfirm=(order:Order)=>{
@@ -210,10 +204,10 @@ export default function AdminPage() {
   const confirmDelete=async()=>{
     if(!deleteModal)return;
     if(deleteModal.type==="single"&&deleteModal.id){
-      await supabase.from("orders").delete().eq("id",deleteModal.id);
+      await deleteOrders([deleteModal.id]);
       showMsg(lang==="ar"?"تم الحذف":"Deleted");
     } else {
-      for(const id of selectedOrders)await supabase.from("orders").delete().eq("id",id);
+      await deleteOrders([...selectedOrders]);
       showMsg(`Deleted ${selectedOrders.size} orders`);clearSelection();
     }
     setDeleteModal(null);fetchOrders();
@@ -223,16 +217,16 @@ export default function AdminPage() {
   const selectAll=()=>{const ids=filteredOrders.map(o=>o.id);setSelectedOrders(new Set(ids));};
   const clearSelection=()=>setSelectedOrders(new Set());
   const bulkAdvance=async()=>{
-    for(const id of selectedOrders){const o=orders.find(x=>x.id===id);if(o&&STATUS_FLOW[o.status])await supabase.from("orders").update({status:STATUS_FLOW[o.status]}).eq("id",id);}
+    const byNext=new Map<string,number[]>();
+    for(const id of selectedOrders){const o=orders.find(x=>x.id===id);const next=o&&STATUS_FLOW[o.status];if(next){if(!byNext.has(next))byNext.set(next,[]);byNext.get(next)!.push(id);}}
+    for(const[next,ids]of byNext)await setOrdersStatusBulk(ids,next);
     showMsg(`Advanced ${selectedOrders.size} orders`);fetchOrders();clearSelection();
   };
 
   // Fix #12: save shipping settings
   const saveSettings=async()=>{
     setSavingSettings(true);
-    const{data}=await supabase.from("settings").select("*").eq("key","shipping_fees").single();
-    if(data){await supabase.from("settings").update({value:shippingFees}).eq("key","shipping_fees");}
-    else{await supabase.from("settings").insert([{key:"shipping_fees",value:shippingFees}]);}
+    await saveSetting("shipping_fees",shippingFees);
     setSavingSettings(false);showMsg(lang==="ar"?"تم الحفظ":"Settings saved!");
   };
 
@@ -248,23 +242,9 @@ export default function AdminPage() {
     denied:{bg:dark?"#2A0000":"#FEF2F2",text:"#EF4444"},
   };
 
-  if(!isAuthenticated)return(
-    <div style={{minHeight:"100vh",background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Jost,sans-serif",direction:lang==="ar"?"rtl":"ltr"}}>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
-      <div style={{position:"fixed",top:20,right:20,display:"flex",gap:8}}>
-        <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"transparent",border:`1px solid ${border}`,color:textSub,padding:"6px 16px",fontSize:11,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>{lang==="en"?"العربية":"English"}</button>
-        <button onClick={()=>setDark(d=>!d)} style={{background:"transparent",border:`1px solid ${border}`,color:textSub,padding:"6px 12px",fontSize:14,cursor:"pointer"}}>{dark?"☀️":"🌙"}</button>
-      </div>
-      <form onSubmit={handleLogin} style={{background:cardBg,border:`1px solid ${border}`,padding:"52px 44px",width:380,textAlign:"center"}}>
-        <p style={{fontSize:10,letterSpacing:4,textTransform:"uppercase",color:accent,marginBottom:10}}>{lang==="ar"?"بوابة الإدارة":"Admin Portal"}</p>
-        <h1 style={{fontFamily:"Cormorant Garamond,serif",fontSize:34,fontWeight:300,color:text,marginBottom:6,letterSpacing:2}}>JOUD ALOUD</h1>
-        <p style={{fontSize:12,color:textSub,marginBottom:32}}>{lang==="ar"?"سجّل دخولك":"Sign in to manage your store"}</p>
-        <input value={username} onChange={e=>{setUsername(e.target.value);setLoginError("");}} placeholder={lang==="ar"?"اسم المستخدم":"Username"} style={{...inp,marginBottom:12}} />
-        <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder={lang==="ar"?"كلمة المرور":"Password"} style={{...inp,marginBottom:loginError?0:18}} />
-        {/* Fix #7: red error box, new message each time */}
-        {loginError&&<div style={{background:"#FEF2F2",border:"1px solid #FCA5A5",color:"#B91C1C",padding:"10px 14px",fontSize:12,marginTop:10,marginBottom:14,textAlign:lang==="ar"?"right":"left"}}>⚠️ {loginError}</div>}
-        <button type="submit" style={{width:"100%",background:"#1C1510",color:"#E8DFD0",border:"none",padding:15,fontSize:11,letterSpacing:3,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif",marginTop:4}}>{lang==="ar"?"دخول":"Sign In"}</button>
-      </form>
+  if(checkingSession||!isAuthenticated)return(
+    <div style={{minHeight:"100vh",background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Jost,sans-serif"}}>
+      <p style={{color:textSub,fontSize:13}}>{lang==="ar"?"جارِ التحقق…":"Checking session…"}</p>
     </div>
   );
 
@@ -284,7 +264,7 @@ export default function AdminPage() {
             </button>
             <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 16px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="en"?"العربية":"English"}</button>
             <button onClick={()=>setDark(d=>!d)} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 12px",fontSize:16,cursor:"pointer"}}>{dark?"☀️":"🌙"}</button>
-            <button onClick={()=>{setIsAuthenticated(false);setActiveTab("orders");setOrderFilter("all");setUsername("");setPassword("");setLoginAttempts(0);}} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 20px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="ar"?"خروج":"Logout"}</button>
+            <button onClick={()=>{handleLogout();setActiveTab("orders");setOrderFilter("all");}} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 20px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="ar"?"خروج":"Logout"}</button>
           </div>
           {/* Hamburger — mobile */}
           <button className="admin-mobile-btn" onClick={()=>setAdminMenu(m=>!m)} style={{background:"none",border:"none",cursor:"pointer",padding:6,alignItems:"center",justifyContent:"center"}}>
@@ -299,7 +279,7 @@ export default function AdminPage() {
         </button>
         <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{lang==="en"?"العربية":"English"}</button>
         <button onClick={()=>{setDark(d=>!d);setAdminMenu(false);}} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{dark?"☀️ Light":"🌙 Dark"}</button>
-        <button onClick={()=>{setIsAuthenticated(false);setActiveTab("orders");setOrderFilter("all");setUsername("");setPassword("");setLoginAttempts(0);setAdminMenu(false);}} style={{background:"none",border:"none",color:"#EF4444",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{lang==="ar"?"خروج":"Logout"}</button>
+        <button onClick={()=>{handleLogout();setActiveTab("orders");setOrderFilter("all");setAdminMenu(false);}} style={{background:"none",border:"none",color:"#EF4444",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{lang==="ar"?"خروج":"Logout"}</button>
       </div>
 
       <div style={{maxWidth:1280,margin:"0 auto",padding:"40px 32px"}}>
@@ -614,10 +594,10 @@ export default function AdminPage() {
                     </div>
                     <div style={{display:"flex",gap:8,flexShrink:0}}>
                       {isPending&&<>
-                        <button onClick={async()=>{await supabase.from("reviews").update({status:"approved"}).eq("id",r.id);fetchReviews();showMsg("Approved");}} style={{background:"#22C55E",color:"#fff",border:"none",padding:"8px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600}}>✓</button>
-                        <button onClick={async()=>{await supabase.from("reviews").update({status:"denied"}).eq("id",r.id);fetchReviews();showMsg("Denied");}} style={{background:dark?"#2A0000":"#FEF2F2",border:"1px solid #EF4444",color:"#EF4444",padding:"8px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600}}>✕</button>
+                        <button onClick={async()=>{await setReviewStatus(r.id,"approved");fetchReviews();showMsg("Approved");}} style={{background:"#22C55E",color:"#fff",border:"none",padding:"8px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600}}>✓</button>
+                        <button onClick={async()=>{await setReviewStatus(r.id,"denied");fetchReviews();showMsg("Denied");}} style={{background:dark?"#2A0000":"#FEF2F2",border:"1px solid #EF4444",color:"#EF4444",padding:"8px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600}}>✕</button>
                       </>}
-                      <button onClick={async()=>{await supabase.from("reviews").delete().eq("id",r.id);fetchReviews();showMsg("Deleted");}} style={{background:"transparent",border:`1px solid ${border}`,color:textSub,padding:"8px 12px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>🗑</button>
+                      <button onClick={async()=>{await deleteReview(r.id);fetchReviews();showMsg("Deleted");}} style={{background:"transparent",border:`1px solid ${border}`,color:textSub,padding:"8px 12px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>🗑</button>
                     </div>
                   </div>
                 );
@@ -684,7 +664,7 @@ export default function AdminPage() {
                   {adminCategories.map(c=>(
                     <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${border}`}}>
                       <div><span style={{fontSize:13,color:text,fontWeight:600}}>{c.name}</span> <span style={{fontSize:11,color:textSub,direction:"rtl"}}>{c.name_ar}</span></div>
-                      <button onClick={async()=>{await supabase.from("categories").delete().eq("id",c.id);fetchCategories();}} style={{background:"transparent",border:"none",color:"#EF4444",padding:"2px 8px",fontSize:12,cursor:"pointer"}}>x</button>
+                      <button onClick={async()=>{await deleteCategory(c.id);fetchCategories();}} style={{background:"transparent",border:"none",color:"#EF4444",padding:"2px 8px",fontSize:12,cursor:"pointer"}}>x</button>
                     </div>
                   ))}
                 </div>
@@ -693,7 +673,7 @@ export default function AdminPage() {
                   <input value={newCatAr} onChange={e=>setNewCatAr(e.target.value)} placeholder="عربي" dir="rtl" style={{...inp,fontSize:12,padding:"8px 10px"}} />
                 </div>
                 <input value={newCatSlug} onChange={e=>setNewCatSlug(e.target.value.toLowerCase().replace(/\s+/g,"-"))} placeholder="slug (e.g. bakhoor)" style={{...inp,fontSize:12,padding:"8px 10px",marginBottom:10}} />
-                <button onClick={async()=>{if(!newCatName||!newCatSlug)return;await supabase.from("categories").insert([{name:newCatName,name_ar:newCatAr,slug:newCatSlug}]);setNewCatName("");setNewCatAr("");setNewCatSlug("");fetchCategories();showMsg("Added");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 20px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                <button onClick={async()=>{if(!newCatName||!newCatSlug)return;await addCategory(newCatName,newCatAr,newCatSlug);setNewCatName("");setNewCatAr("");setNewCatSlug("");fetchCategories();showMsg("Added");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 20px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
                   + {lang==="ar"?"إضافة":"Add"}
                 </button>
               </SettingsCard>
@@ -702,7 +682,7 @@ export default function AdminPage() {
               <SettingsCard title={lang==="ar"?"رسالة القبول":"Approve Message"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
                 <p style={{fontSize:10,color:textSub,marginBottom:8}}>{"{name}"} = customer, {"{total}"} = total</p>
                 <textarea value={waApproveMsg} onChange={e=>setWaApproveMsg(e.target.value)} rows={4} style={{...inp,resize:"vertical" as const,fontSize:12,marginBottom:10}} />
-                <button onClick={async()=>{const{data}=await supabase.from("settings").select("*").eq("key","wa_messages").single();if(data){await supabase.from("settings").update({value:{approve:waApproveMsg,deny:waDenyMsg}}).eq("key","wa_messages");}else{await supabase.from("settings").insert([{key:"wa_messages",value:{approve:waApproveMsg,deny:waDenyMsg}}]);}showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                <button onClick={async()=>{await saveSetting("wa_messages",{approve:waApproveMsg,deny:waDenyMsg});showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
                   {lang==="ar"?"حفظ":"Save"}
                 </button>
               </SettingsCard>
@@ -711,7 +691,7 @@ export default function AdminPage() {
               <SettingsCard title={lang==="ar"?"رسالة الرفض":"Deny Message"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
                 <p style={{fontSize:10,color:textSub,marginBottom:8}}>{"{name}"} = customer, {"{reason}"} = reason</p>
                 <textarea value={waDenyMsg} onChange={e=>setWaDenyMsg(e.target.value)} rows={4} style={{...inp,resize:"vertical" as const,fontSize:12,marginBottom:10}} />
-                <button onClick={async()=>{const{data}=await supabase.from("settings").select("*").eq("key","wa_messages").single();if(data){await supabase.from("settings").update({value:{approve:waApproveMsg,deny:waDenyMsg}}).eq("key","wa_messages");}else{await supabase.from("settings").insert([{key:"wa_messages",value:{approve:waApproveMsg,deny:waDenyMsg}}]);}showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                <button onClick={async()=>{await saveSetting("wa_messages",{approve:waApproveMsg,deny:waDenyMsg});showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
                   {lang==="ar"?"حفظ":"Save"}
                 </button>
               </SettingsCard>
