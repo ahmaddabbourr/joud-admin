@@ -14,6 +14,7 @@ type Order = {
 type Product = {
   id: number; name: string; nameAr: string; emoji: string; image_url?: string;
   price: number; original_price?: number; discount: number; desc: string; descAr: string; category: string;
+  out_of_stock?: boolean; sold_out?: boolean;
 };
 
 const STATUS_LABELS: Record<string,{en:string;ar:string}> = {
@@ -57,8 +58,9 @@ export default function AdminPage() {
   const [username, setUsername] = useState(""); const [password, setPassword] = useState("");
   // Fix #7: track attempt count to show new message each time
   const [loginError, setLoginError] = useState(""); const [loginAttempts, setLoginAttempts] = useState(0);
-  const [activeTab, setActiveTab] = useState<"orders"|"products"|"settings">("orders");
+  const [activeTab, setActiveTab] = useState<"orders"|"products"|"reviews"|"settings">("orders");
   const [dark, setDark] = useState(false); const [lang, setLang] = useState<"en"|"ar">("en");
+  const [adminMenu, setAdminMenu] = useState(false);
   const [toast, setToast] = useState("");
 
   // Products
@@ -183,6 +185,11 @@ export default function AdminPage() {
     const{error}=await supabase.from("products").delete().eq("id",id);
     if(!error){showMsg("Deleted");fetchProducts();}
   };
+  const toggleStock=async(id:number,field:"out_of_stock"|"sold_out",current:boolean)=>{
+    await supabase.from("products").update({[field]:!current,[field==="out_of_stock"?"sold_out":"out_of_stock"]:false}).eq("id",id);
+    showMsg(!current?(field==="out_of_stock"?(lang==="ar"?"غير متوفر":"Out of stock"):(lang==="ar"?"تم البيع":"Sold out")):(lang==="ar"?"متوفر":"Available"));
+    fetchProducts();
+  };
 
   const approveOrder=async(id:number)=>{await supabase.from("orders").update({status:"confirmed"}).eq("id",id);showMsg(lang==="ar"?"تم القبول":"Approved");fetchOrders();};
   const advanceStatus=async(order:Order)=>{const next=STATUS_FLOW[order.status];if(!next)return;await supabase.from("orders").update({status:next}).eq("id",order.id);showMsg(`→ ${next}`);fetchOrders();};
@@ -265,19 +272,35 @@ export default function AdminPage() {
     <div style={{fontFamily:"Jost,sans-serif",background:bg,minHeight:"100vh",color:text,direction:lang==="ar"?"rtl":"ltr"}}>
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
       <style>{`@keyframes shake{0%,100%{transform:rotate(0)}20%{transform:rotate(15deg)}40%{transform:rotate(-15deg)}60%{transform:rotate(10deg)}80%{transform:rotate(-10deg)}}`}</style>
-      <nav style={{background:navBg,height:64,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 32px",position:"sticky",top:0,zIndex:100}}>
-        <span style={{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#E8DFD0",letterSpacing:3}}>JOUD ALOUD</span>
+      <nav style={{background:navBg,height:64,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 20px",position:"sticky",top:0,zIndex:100}}>
+        <span style={{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#E8DFD0",letterSpacing:3}}>JOUD ALOUD</span>
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
-          {/* Notification bell */}
-          <div onClick={()=>{setActiveTab("orders");setOrderFilter("pending");}} style={{position:"relative",cursor:"pointer",padding:"7px 10px",animation:bellRing?"shake 0.5s ease":"none"}}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D4C4B0" strokeWidth="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-            {pending>0&&<span style={{position:"absolute",top:2,right:4,background:"#EF4444",color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,border:"2px solid "+navBg}}>{pending}</span>}
+          {/* Desktop nav */}
+          <div className="admin-desktop-nav">
+            {/* Notification bell */}
+            <button onClick={()=>{setActiveTab("orders");setOrderFilter("pending");}} style={{position:"relative",cursor:"pointer",padding:"7px 10px",background:"none",border:"none",animation:bellRing?"shake 0.5s ease":"none"}}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D4C4B0" strokeWidth="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+              {pending>0&&<span style={{position:"absolute",top:2,right:4,background:"#EF4444",color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,border:"2px solid "+navBg}}>{pending}</span>}
+            </button>
+            <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 16px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="en"?"العربية":"English"}</button>
+            <button onClick={()=>setDark(d=>!d)} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 12px",fontSize:16,cursor:"pointer"}}>{dark?"☀️":"🌙"}</button>
+            <button onClick={()=>{setIsAuthenticated(false);setActiveTab("orders");setOrderFilter("all");setUsername("");setPassword("");setLoginAttempts(0);}} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 20px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="ar"?"خروج":"Logout"}</button>
           </div>
-          <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 16px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="en"?"العربية":"English"}</button>
-          <button onClick={()=>setDark(d=>!d)} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 12px",fontSize:16,cursor:"pointer"}}>{dark?"☀️":"🌙"}</button>
-          <button onClick={()=>setIsAuthenticated(false)} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 20px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="ar"?"خروج":"Logout"}</button>
+          {/* Hamburger — mobile */}
+          <button className="admin-mobile-btn" onClick={()=>setAdminMenu(m=>!m)} style={{background:"none",border:"none",cursor:"pointer",padding:6,alignItems:"center",justifyContent:"center"}}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4C4B0" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
         </div>
       </nav>
+      {/* Admin mobile dropdown */}
+      <div className={`admin-mobile-dropdown${adminMenu?" open":""}`}>
+        <button onClick={()=>{setActiveTab("orders");setOrderFilter("pending");setAdminMenu(false);}} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>
+          {lang==="ar"?"الطلبات":"Orders"} {pending>0&&<span style={{background:"#EF4444",color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:10,marginLeft:6}}>{pending}</span>}
+        </button>
+        <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{lang==="en"?"العربية":"English"}</button>
+        <button onClick={()=>{setDark(d=>!d);setAdminMenu(false);}} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{dark?"☀️ Light":"🌙 Dark"}</button>
+        <button onClick={()=>{setIsAuthenticated(false);setActiveTab("orders");setOrderFilter("all");setUsername("");setPassword("");setLoginAttempts(0);setAdminMenu(false);}} style={{background:"none",border:"none",color:"#EF4444",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{lang==="ar"?"خروج":"Logout"}</button>
+      </div>
 
       <div style={{maxWidth:1280,margin:"0 auto",padding:"40px 32px"}}>
         {/* Stats */}
@@ -514,7 +537,7 @@ export default function AdminPage() {
             <div style={{background:cardBg,border:`1px solid ${border}`,overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse"}}>
                 <thead><tr style={{borderBottom:`2px solid ${border}`}}>
-                  {(lang==="ar"?["","الاسم","العربي","الفئة","السعر","الخصم","الإجراءات"]:["","Name","Arabic","Category","Price","Discount","Actions"]).map(h=>(
+                  {(lang==="ar"?["","الاسم","العربي","الفئة","السعر","الحالة","الإجراءات"]:["","Name","Arabic","Category","Price","Status","Actions"]).map(h=>(
                     <th key={h} style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,padding:"14px 16px",textAlign:lang==="ar"?"right":"left",fontWeight:500,whiteSpace:"nowrap"}}>{h}</th>
                   ))}
                 </tr></thead>
@@ -532,7 +555,19 @@ export default function AdminPage() {
                           {hasDiscount&&<span style={{textDecoration:"line-through",color:textSub,fontSize:12,display:"block"}}>{orig} JOD</span>}
                           <span style={{fontWeight:700,fontSize:14,color:"#22C55E"}}>{p.price} JOD</span>
                         </td>
-                        <td style={{padding:"12px 16px"}}>{hasDiscount?<span style={{background:dark?"#002A00":"#DCFCE7",color:"#22C55E",padding:"3px 9px",fontSize:11,fontWeight:700}}>{p.discount}% OFF</span>:<span style={{color:textSub,fontSize:12}}>—</span>}</td>
+                        <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>
+                          {p.out_of_stock?<span style={{background:"#FEF3C7",color:"#F59E0B",padding:"3px 9px",fontSize:10,fontWeight:700,letterSpacing:1}}>{lang==="ar"?"غير متوفر":"OUT OF STOCK"}</span>
+                          :p.sold_out?<span style={{background:"#FEF2F2",color:"#EF4444",padding:"3px 9px",fontSize:10,fontWeight:700,letterSpacing:1}}>{lang==="ar"?"تم البيع":"SOLD OUT"}</span>
+                          :<span style={{background:dark?"#002A00":"#DCFCE7",color:"#22C55E",padding:"3px 9px",fontSize:10,fontWeight:700}}>{lang==="ar"?"متوفر":"AVAILABLE"}</span>}
+                          <div style={{display:"flex",gap:4,marginTop:6}}>
+                            <button onClick={()=>toggleStock(p.id,"out_of_stock",!!p.out_of_stock)} style={{background:p.out_of_stock?"#F59E0B":"transparent",color:p.out_of_stock?"#fff":textSub,border:`1px solid ${p.out_of_stock?"#F59E0B":border}`,padding:"3px 8px",fontSize:9,cursor:"pointer",fontFamily:"Jost,sans-serif",letterSpacing:0.5}}>
+                              {p.out_of_stock?"✓ ":""}OOS
+                            </button>
+                            <button onClick={()=>toggleStock(p.id,"sold_out",!!p.sold_out)} style={{background:p.sold_out?"#EF4444":"transparent",color:p.sold_out?"#fff":textSub,border:`1px solid ${p.sold_out?"#EF4444":border}`,padding:"3px 8px",fontSize:9,cursor:"pointer",fontFamily:"Jost,sans-serif",letterSpacing:0.5}}>
+                              {p.sold_out?"✓ ":""}SOLD
+                            </button>
+                          </div>
+                        </td>
                         <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>
                           <button onClick={()=>startEdit(p)} style={{background:dark?"#2A2000":"#FEF9EC",border:`1px solid ${accent}`,color:accent,padding:"7px 16px",fontSize:11,cursor:"pointer",marginRight:8,fontFamily:"Jost,sans-serif",fontWeight:600,letterSpacing:1}}>{lang==="ar"?"تعديل":"Edit"}</button>
                           <button onClick={()=>handleDeleteProduct(p.id)} style={{background:dark?"#2A0000":"#FEF2F2",border:"1px solid #EF4444",color:"#EF4444",padding:"7px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600,letterSpacing:1}}>{lang==="ar"?"حذف":"Delete"}</button>
