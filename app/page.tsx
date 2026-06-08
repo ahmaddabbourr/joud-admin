@@ -23,7 +23,7 @@ const STATUS_LABELS: Record<string,{en:string;ar:string}> = {
   delivered: {en:"Delivered", ar:"تم التسليم"},
   denied:    {en:"Denied",    ar:"مرفوض"},
 };
-const STATUS_FLOW: Record<string,string> = {confirmed:"shipped", shipped:"delivered"};
+const STATUS_FLOW: Record<string,string> = {pending:"confirmed", confirmed:"shipped", shipped:"delivered"};
 
 // Fix #2: 12-hour format
 const formatTime = (iso: string) => {
@@ -58,7 +58,8 @@ function TransferImage({url,border}:{url:string;border:string}) {
     let cancelled=false;
     const path=url.split("/transfer-screenshots/")[1];
     if(!path){setSignedUrl(url);return;}
-    supabase.storage.from("transfer-screenshots").createSignedUrl(path,3600).then(({data})=>{
+    supabase.storage.from("transfer-screenshots").createSignedUrl(path,3600).then(({data,error})=>{
+      if(error)console.error("Signed URL error:",error.message,"path:",path);
       if(!cancelled&&data?.signedUrl)setSignedUrl(data.signedUrl);
     });
     return()=>{cancelled=true;};
@@ -76,6 +77,68 @@ export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [activeTab, setActiveTab] = useState<"orders"|"products"|"reviews"|"settings">("orders");
+  const [adminPin, setAdminPin] = useState("1111");
+  const [revenueUnlocked, setRevenueUnlocked] = useState(false);
+  const [settingsUnlocked, setSettingsUnlocked] = useState(false);
+  const [pinModal, setPinModal] = useState<null|"revenue"|"settings">(null);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const [curPin, setCurPin] = useState(""); const [newPin, setNewPin] = useState(""); const [confirmPin, setConfirmPin] = useState(""); const [savingPin, setSavingPin] = useState(false);
+  const [newEmail, setNewEmail] = useState(""); const [savingEmail, setSavingEmail] = useState(false);
+  const [curPassword, setCurPassword] = useState(""); const [newPassword, setNewPassword] = useState(""); const [confirmPassword, setConfirmPassword] = useState(""); const [savingPassword, setSavingPassword] = useState(false);
+  const changePin=async()=>{
+    if(curPin!==adminPin){showMsg(lang==="ar"?"الرمز الحالي غير صحيح":"Current PIN is incorrect");return;}
+    if(newPin.length<4){showMsg(lang==="ar"?"الرمز الجديد يجب أن يكون 4 أرقام على الأقل":"New PIN must be at least 4 digits");return;}
+    if(newPin!==confirmPin){showMsg(lang==="ar"?"الرمزان غير متطابقين":"PINs don't match");return;}
+    setSavingPin(true);
+    const ok=await runAction(()=>saveSetting("admin_pin",{pin:newPin}));
+    setSavingPin(false);
+    if(ok){setAdminPin(newPin);setCurPin("");setNewPin("");setConfirmPin("");showMsg(lang==="ar"?"تم تغيير الرمز":"PIN changed");}
+  };
+  const resetPin=async()=>{
+    setSavingPin(true);
+    const ok=await runAction(()=>saveSetting("admin_pin",{pin:"1111"}));
+    setSavingPin(false);
+    if(ok){setAdminPin("1111");setCurPin("");setNewPin("");setConfirmPin("");showMsg(lang==="ar"?"تمت إعادة الرمز إلى 1111":"PIN reset to 1111");}
+  };
+  const changeEmail=async()=>{
+    if(!newEmail.trim()||!newEmail.includes("@")){showMsg(lang==="ar"?"بريد إلكتروني غير صالح":"Invalid email");return;}
+    setSavingEmail(true);
+    const{error}=await supabase.auth.updateUser({email:newEmail.trim()});
+    setSavingEmail(false);
+    if(error){showMsg(error.message);return;}
+    setNewEmail("");
+    showMsg(lang==="ar"?"تحقق من بريدك الإلكتروني الجديد لتأكيد التغيير":"Check your new email to confirm the change");
+  };
+  const changePassword=async()=>{
+    if(newPassword.length<6){showMsg(lang==="ar"?"كلمة المرور يجب أن تكون 6 أحرف على الأقل":"Password must be at least 6 characters");return;}
+    if(newPassword!==confirmPassword){showMsg(lang==="ar"?"كلمتا المرور غير متطابقتين":"Passwords don't match");return;}
+    setSavingPassword(true);
+    const{error:verifyErr}=await supabase.auth.signInWithPassword({email:userEmail,password:curPassword});
+    if(verifyErr){setSavingPassword(false);showMsg(lang==="ar"?"كلمة المرور الحالية غير صحيحة":"Current password is incorrect");return;}
+    const{error}=await supabase.auth.updateUser({password:newPassword});
+    setSavingPassword(false);
+    if(error){showMsg(error.message);return;}
+    setCurPassword("");setNewPassword("");setConfirmPassword("");
+    showMsg(lang==="ar"?"تم تغيير كلمة المرور":"Password changed");
+  };
+  const submitPin=()=>{
+    if(pinInput===adminPin){
+      if(pinModal==="revenue")setRevenueUnlocked(true);
+      if(pinModal==="settings"){setSettingsUnlocked(true);setActiveTab("settings");}
+      setPinModal(null);setPinInput("");setPinError(false);
+    } else {setPinError(true);}
+  };
+  const openTab=(t:"orders"|"products"|"reviews"|"settings")=>{
+    if(t==="settings"){
+      if(!settingsUnlocked){setPinModal("settings");setPinInput("");setPinError(false);}
+      else setActiveTab(t);
+      return;
+    }
+    if(activeTab==="settings")setSettingsUnlocked(false);
+    setActiveTab(t);
+  };
   const [dark, setDark] = useState(false); const [lang, setLang] = useState<"en"|"ar">("en");
   const [adminMenu, setAdminMenu] = useState(false);
   const [toast, setToast] = useState("");
@@ -96,12 +159,14 @@ export default function AdminPage() {
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set()); // Fix #5
   const [denyModal, setDenyModal] = useState<{id:number,phone:string}|null>(null);
   const [deleteModal, setDeleteModal] = useState<{type:"single"|"bulk",id?:number,count?:number}|null>(null);
+  const [confirmModal, setConfirmModal] = useState<Order[]|null>(null);
+  const [confirmSent, setConfirmSent] = useState<Set<number>>(new Set());
   const [denyReason, setDenyReason] = useState("");
   const [expandedOrder, setExpandedOrder] = useState<number|null>(null);
 
   // Settings — Fix #12: shipping fees editable
   const [shippingFees, setShippingFees] = useState({amman:0,outside:2});
-  const [cliqInfo, setCliqInfo] = useState({alias:"",bank:""});
+  const [cliqInfo, setCliqInfo] = useState({alias:"",bank:"",retrievedName:""});
   const [savingCliq, setSavingCliq] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [adminCategories, setAdminCategories] = useState<{id:number;name:string;name_ar:string;slug:string}[]>([]);
@@ -121,6 +186,7 @@ export default function AdminPage() {
     supabase.auth.getUser().then(({data:{user}})=>{
       setIsAuthenticated(!!user);
       setCheckingSession(false);
+      if(user?.email)setUserEmail(user.email);
       if(!user)router.replace("/login");
     });
     const{data:sub}=supabase.auth.onAuthStateChange((_event,session)=>{
@@ -140,12 +206,14 @@ export default function AdminPage() {
       showMsg(e?.message||"Error");return false;
     }finally{setActionLoading(false);}
   };
-  useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();fetchCliqInfo();fetchCategories();fetchWAMessages();fetchReviews();}},[isAuthenticated]);
+  useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();fetchAdminPin();fetchCliqInfo();fetchCategories();fetchWAMessages();fetchReviews();}},[isAuthenticated]);
 
   // Notification sound for new orders — polls every 15 seconds
-  const lastOrderCountRef = useRef(0);
   const audioRef = useRef<HTMLAudioElement|null>(null);
   const [bellRing, setBellRing] = useState(false);
+  const [notifHistory, setNotifHistory] = useState<{msg:string;time:number}[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const pushNotif=(msg:string)=>{showMsg(msg);setNotifHistory(h=>[{msg,time:Date.now()},...h].slice(0,30));};
 
   useEffect(()=>{
     // Create audio element with a base64 beep sound
@@ -156,23 +224,53 @@ export default function AdminPage() {
 
   const playNotification = () => {
     try {
-      audioRef.current?.play();
+      audioRef.current?.play()?.catch(()=>{});
       setBellRing(true);
       setTimeout(()=>setBellRing(false), 2000);
     } catch(e) {}
   };
+
+  // Browsers block audio playback until the user interacts with the page — unlock on first interaction
+  useEffect(()=>{
+    const unlock=()=>{
+      const a=audioRef.current;
+      if(a){a.muted=true;a.play().then(()=>{a.pause();a.currentTime=0;a.muted=false;}).catch(()=>{});}
+      window.removeEventListener("pointerdown",unlock);
+      window.removeEventListener("keydown",unlock);
+    };
+    window.addEventListener("pointerdown",unlock);
+    window.addEventListener("keydown",unlock);
+    return()=>{window.removeEventListener("pointerdown",unlock);window.removeEventListener("keydown",unlock);};
+  },[]);
+  const prevOrderStatusesRef = useRef<Map<number,string>|null>(null);
+  const STATUS_LABEL:Record<string,{en:string;ar:string}> = {
+    pending:{en:"received",ar:"مستلم"},
+    confirmed:{en:"approved",ar:"مقبول"},
+    denied:{en:"denied",ar:"مرفوض"},
+    shipped:{en:"shipped",ar:"تم الشحن"},
+    delivered:{en:"delivered",ar:"تم التوصيل"},
+  };
   useEffect(()=>{
     if(!isAuthenticated) return;
     const interval = setInterval(async()=>{
-      const{data}=await supabase.from("orders").select("id",{count:"exact"}).eq("status","pending");
-      const count = data?.length || 0;
-      if(lastOrderCountRef.current > 0 && count > lastOrderCountRef.current) {
-        showMsg(lang==="ar"?"🔔 طلب جديد!":"🔔 New order received!");
+      const{data}=await supabase.from("orders").select("id,status,customer_name").order("id",{ascending:false});
+      if(!data)return;
+      const prev=prevOrderStatusesRef.current;
+      if(prev){
+        for(const o of data){
+          const before=prev.get(o.id);
+          if(before===undefined&&o.status==="pending"){
+            pushNotif(lang==="ar"?`🔔 طلب جديد من ${o.customer_name}`:`🔔 New order from ${o.customer_name}`);
+          } else if(before!==undefined&&before!==o.status){
+            const lbl=STATUS_LABEL[o.status];
+            pushNotif(lang==="ar"?`📦 الطلب #${o.id} ${lbl?.ar||o.status}`:`📦 Order #${o.id} ${lbl?.en||o.status}`);
+          }
+        }
         fetchOrders();
       }
-      // Keep ringing every cycle as long as there's a pending order, so it's never missed
-      if(count > 0) playNotification();
-      lastOrderCountRef.current = count;
+      prevOrderStatusesRef.current=new Map(data.map(o=>[o.id,o.status]));
+      const pendingCount=data.filter(o=>o.status==="pending").length;
+      if(pendingCount>0)playNotification();
     }, 15000);
     return ()=>clearInterval(interval);
   },[isAuthenticated]);
@@ -183,7 +281,8 @@ export default function AdminPage() {
   const fetchReviews=async()=>{const{data}=await supabase.from("reviews").select("*").order("created_at",{ascending:false});if(data)setAdminReviews(data);};
   const fetchWAMessages=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","wa_messages").single();if(data?.value){setWaApproveMsg(data.value.approve||waApproveMsg);setWaDenyMsg(data.value.deny||waDenyMsg);}};
   const fetchSettings=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","shipping_fees").single();if(data?.value)setShippingFees(data.value);};
-  const fetchCliqInfo=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","cliq").single();if(data?.value)setCliqInfo({alias:data.value.alias||"",bank:data.value.bank||""});};
+  const fetchAdminPin=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","admin_pin").single();if(data?.value?.pin)setAdminPin(data.value.pin);};
+  const fetchCliqInfo=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","cliq").single();if(data?.value)setCliqInfo({alias:data.value.alias||"",bank:data.value.bank||"",retrievedName:data.value.retrievedName||""});};
 
   // Fix #7: different message on each wrong attempt
   const resetForm=()=>{setPName("");setPNameAr("");setPEmoji("🪔");setPPrice("");setPDiscount("");setPDesc("");setPDescAr("");setPCategory("perfume");setPImageFile(null);setPImagePreview("");setPImageKey(k=>k+1);setEditingProduct(null);setShowForm(false);};
@@ -220,9 +319,10 @@ export default function AdminPage() {
     fetchProducts();
   };
 
-  const approveOrder=async(id:number)=>{if(!await runAction(()=>setOrderStatus(id,"confirmed")))return;showMsg(lang==="ar"?"تم القبول":"Approved");fetchOrders();};
-  const advanceStatus=async(order:Order)=>{const next=STATUS_FLOW[order.status];if(!next)return;if(!await runAction(()=>setOrderStatus(order.id,next)))return;showMsg(`→ ${next}`);fetchOrders();};
-  const denyOrder=async()=>{if(!denyModal)return;if(!await runAction(()=>setOrderStatus(denyModal.id,"denied",denyReason)))return;showMsg(lang==="ar"?"تم الرفض":"Denied");setDenyModal(null);setDenyReason("");fetchOrders();};
+  const noteStatus=(id:number,status:string)=>{prevOrderStatusesRef.current?.set(id,status);};
+  const approveOrder=async(id:number)=>{if(!await runAction(()=>setOrderStatus(id,"confirmed")))return;noteStatus(id,"confirmed");pushNotif(lang==="ar"?`✅ الطلب #${id} مقبول`:`✅ Order #${id} approved`);fetchOrders();};
+  const advanceStatus=async(order:Order)=>{const next=STATUS_FLOW[order.status];if(!next)return;if(!await runAction(()=>setOrderStatus(order.id,next)))return;noteStatus(order.id,next);pushNotif(`→ Order #${order.id} ${next}`);fetchOrders();};
+  const denyOrder=async()=>{if(!denyModal)return;if(!await runAction(()=>setOrderStatus(denyModal.id,"denied",denyReason)))return;noteStatus(denyModal.id,"denied");pushNotif(lang==="ar"?`❌ الطلب #${denyModal.id} مرفوض`:`❌ Order #${denyModal.id} denied`);setDenyModal(null);setDenyReason("");fetchOrders();};
 
   // WhatsApp: send confirm message to customer
   const waConfirm=(order:Order)=>{
@@ -251,11 +351,22 @@ export default function AdminPage() {
   const toggleSelect=(id:number)=>{const s=new Set(selectedOrders);s.has(id)?s.delete(id):s.add(id);setSelectedOrders(s);};
   const selectAll=()=>{const ids=filteredOrders.map(o=>o.id);setSelectedOrders(new Set(ids));};
   const clearSelection=()=>setSelectedOrders(new Set());
+  const bulkSendConfirmation=()=>{
+    const selected=[...selectedOrders].map(id=>orders.find(o=>o.id===id)).filter(Boolean) as Order[];
+    if(!selected.length)return;
+    setConfirmSent(new Set());
+    setConfirmModal(selected);
+  };
   const bulkAdvance=async()=>{
     const byNext=new Map<string,number[]>();
     for(const id of selectedOrders){const o=orders.find(x=>x.id===id);const next=o&&STATUS_FLOW[o.status];if(next){if(!byNext.has(next))byNext.set(next,[]);byNext.get(next)!.push(id);}}
-    for(const[next,ids]of byNext)await setOrdersStatusBulk(ids,next);
-    showMsg(`Advanced ${selectedOrders.size} orders`);fetchOrders();clearSelection();
+    const total=[...byNext.values()].reduce((s,ids)=>s+ids.length,0);
+    if(!total){showMsg(lang==="ar"?"لا يمكن تقديم حالة الطلبات المحددة":"Selected orders can't be advanced further");return;}
+    for(const[next,ids]of byNext){
+      if(!await runAction(()=>setOrdersStatusBulk(ids,next)))return;
+      ids.forEach(id=>noteStatus(id,next));
+    }
+    pushNotif(lang==="ar"?`→ تم تقديم ${total} طلب`:`→ Advanced ${total} orders`);fetchOrders();clearSelection();
   };
 
   // Fix #12: save shipping settings
@@ -268,6 +379,7 @@ export default function AdminPage() {
   };
 
   const saveCliqInfo=async()=>{
+    if(!cliqInfo.alias.trim()||!cliqInfo.bank.trim()||!cliqInfo.retrievedName.trim()){showMsg(lang==="ar"?"جميع حقول CliQ مطلوبة":"All CliQ fields are required");return;}
     setSavingCliq(true);
     const ok=await runAction(()=>saveSetting("cliq",cliqInfo));
     setSavingCliq(false);
@@ -297,6 +409,16 @@ export default function AdminPage() {
     <div style={{fontFamily:"Jost,sans-serif",background:bg,minHeight:"100vh",color:text,direction:lang==="ar"?"rtl":"ltr"}}>
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
       <style>{`@keyframes shake{0%,100%{transform:rotate(0)}20%{transform:rotate(15deg)}40%{transform:rotate(-15deg)}60%{transform:rotate(10deg)}80%{transform:rotate(-10deg)}}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      {pinModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setPinModal(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:cardBg,border:`1px solid ${border}`,padding:"28px 32px",width:280,textAlign:"center"}}>
+            <p style={{fontSize:12,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 16px"}}>{lang==="ar"?"أدخل الرمز السري":"Enter PIN"}</p>
+            <input type="password" inputMode="numeric" autoFocus value={pinInput} onChange={e=>{setPinInput(e.target.value);setPinError(false);}} onKeyDown={e=>{if(e.key==="Enter")submitPin();}} style={{width:"100%",textAlign:"center",letterSpacing:6,fontSize:20,border:`1px solid ${pinError?"#EF4444":border}`,padding:"10px 12px",background:dark?"#1E1E1E":"#FDFAF6",color:text,outline:"none",marginBottom:14}} />
+            {pinError&&<p style={{color:"#EF4444",fontSize:11,margin:"-8px 0 14px"}}>{lang==="ar"?"رمز خاطئ":"Incorrect PIN"}</p>}
+            <button onClick={submitPin} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 28px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif",width:"100%"}}>{lang==="ar"?"تأكيد":"Confirm"}</button>
+          </div>
+        </div>
+      )}
       {actionLoading&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}>
           <div style={{width:48,height:48,border:"4px solid rgba(255,255,255,0.25)",borderTopColor:"#D4A84B",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
@@ -308,9 +430,33 @@ export default function AdminPage() {
           {/* Desktop nav */}
           <div className="admin-desktop-nav">
             {/* Notification bell */}
-            <button onClick={()=>{setActiveTab("orders");setOrderFilter("pending");}} style={{position:"relative",cursor:"pointer",padding:"7px 10px",background:"none",border:"none",animation:bellRing?"shake 0.5s ease":"none"}}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D4C4B0" strokeWidth="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-              {pending>0&&<span style={{position:"absolute",top:2,right:4,background:"#EF4444",color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,border:"2px solid "+navBg}}>{pending}</span>}
+            <div style={{position:"relative"}}>
+              <button onClick={()=>setNotifOpen(o=>!o)} style={{position:"relative",cursor:"pointer",padding:"7px 10px",background:"none",border:"none",animation:bellRing?"shake 0.5s ease":"none"}}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D4C4B0" strokeWidth="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+                {pending>0&&<span style={{position:"absolute",top:2,right:4,background:"#EF4444",color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,border:"2px solid "+navBg}}>{pending}</span>}
+              </button>
+              {notifOpen&&(
+                <>
+                  <div onClick={()=>setNotifOpen(false)} style={{position:"fixed",inset:0,zIndex:199}} />
+                  <div style={{position:"absolute",top:"100%",right:0,marginTop:6,width:300,maxHeight:380,overflowY:"auto",background:cardBg,border:`1px solid ${border}`,boxShadow:"0 8px 24px rgba(0,0,0,0.25)",zIndex:200}}>
+                    <div style={{padding:"12px 16px",borderBottom:`1px solid ${border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:12,letterSpacing:1,textTransform:"uppercase",color:text,fontWeight:600}}>{lang==="ar"?"الإشعارات":"Notifications"}</span>
+                      <button onClick={()=>{setActiveTab("orders");setOrderFilter("pending");setNotifOpen(false);}} style={{background:"none",border:"none",color:accent,fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>{lang==="ar"?"عرض المعلقة":"View pending"}</button>
+                    </div>
+                    {notifHistory.length===0?(
+                      <p style={{padding:16,fontSize:12,color:textSub,margin:0,textAlign:"center"}}>{lang==="ar"?"لا توجد إشعارات":"No notifications yet"}</p>
+                    ):notifHistory.map((n,i)=>(
+                      <div key={i} style={{padding:"10px 16px",borderBottom:i<notifHistory.length-1?`1px solid ${border}`:"none"}}>
+                        <p style={{fontSize:12,color:text,margin:"0 0 3px"}}>{n.msg}</p>
+                        <p style={{fontSize:10,color:textSub,margin:0}}>{new Date(n.time).toLocaleString(lang==="ar"?"ar":"en",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <button onClick={()=>openTab("settings")} style={{background:"transparent",border:activeTab==="settings"?`1px solid ${accent}`:"1px solid transparent",color:activeTab==="settings"?accent:"#D4C4B0",padding:"7px 14px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>
+              {lang==="ar"?"الإعدادات":"Settings"}
             </button>
             <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 16px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="en"?"العربية":"English"}</button>
             <button onClick={()=>setDark(d=>!d)} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 12px",fontSize:16,cursor:"pointer"}}>{dark?"☀️":"🌙"}</button>
@@ -324,9 +470,10 @@ export default function AdminPage() {
       </nav>
       {/* Admin mobile dropdown */}
       <div className={`admin-mobile-dropdown${adminMenu?" open":""}`}>
-        <button onClick={()=>{setActiveTab("orders");setOrderFilter("pending");setAdminMenu(false);}} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>
-          {lang==="ar"?"الطلبات":"Orders"} {pending>0&&<span style={{background:"#EF4444",color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:10,marginLeft:6}}>{pending}</span>}
+        <button onClick={()=>{openTab("settings");setAdminMenu(false);}} style={{background:"none",border:"none",color:activeTab==="settings"?accent:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>
+          {lang==="ar"?"الإعدادات":"Settings"}
         </button>
+        <div style={{borderTop:"1px solid #6A5A48",margin:"6px 0"}} />
         <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{lang==="en"?"العربية":"English"}</button>
         <button onClick={()=>{setDark(d=>!d);setAdminMenu(false);}} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{dark?"☀️ Light":"🌙 Dark"}</button>
         <button onClick={()=>{handleLogout();setActiveTab("orders");setOrderFilter("all");setAdminMenu(false);}} style={{background:"none",border:"none",color:"#EF4444",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{lang==="ar"?"خروج":"Logout"}</button>
@@ -336,15 +483,27 @@ export default function AdminPage() {
         {/* Stats */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:36}}>
           {[
-            {label:lang==="ar"?"إجمالي الطلبات":"Total Orders",value:String(orders.length),color:text},
-            {label:lang==="ar"?"قيد الانتظار":"Pending",value:String(pending),color:"#F59E0B"},
-            {label:lang==="ar"?"الإيرادات":"Revenue",value:revenue.toFixed(3),suffix:" JOD",color:"#22C55E"},
-            {label:lang==="ar"?"المنتجات":"Products",value:String(products.length),color:text},
+            {key:"orders",label:lang==="ar"?"إجمالي الطلبات":"Total Orders",value:String(orders.length),color:text},
+            {key:"pending",label:lang==="ar"?"قيد الانتظار":"Pending",value:String(pending),color:"#F59E0B"},
+            {key:"revenue",label:lang==="ar"?"الإيرادات":"Revenue",value:revenue.toFixed(3),suffix:" JOD",color:"#22C55E"},
+            {key:"products",label:lang==="ar"?"المنتجات":"Products",value:String(products.length),color:text},
           ].map(s=>(
             <div key={s.label} style={{background:cardBg,border:`1px solid ${border}`,padding:"22px 26px"}}>
-              <p style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 10px"}}>{s.label}</p>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <p style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 10px"}}>{s.label}</p>
+                {s.key==="revenue"&&(
+                  <button onClick={()=>{if(revenueUnlocked){setRevenueUnlocked(false);}else{setPinModal("revenue");setPinInput("");setPinError(false);}}} style={{background:"none",border:"none",cursor:"pointer",color:textSub,padding:0,marginBottom:8,display:"flex"}} title={revenueUnlocked?"Hide":"Show"}>
+                    {revenueUnlocked?(
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    ):(
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="21" x2="21" y2="3"/></svg>
+                    )}
+                  </button>
+                )}
+              </div>
               <p style={{fontFamily:"Jost,sans-serif",fontSize:32,fontWeight:600,color:s.color,margin:0,lineHeight:1}}>
-                {s.value}{(s as any).suffix&&<span style={{fontSize:14,fontFamily:"Jost,sans-serif",marginLeft:4,opacity:0.7}}>{(s as any).suffix}</span>}
+                {s.key==="revenue"&&!revenueUnlocked?"••••":s.value}{(s as any).suffix&&revenueUnlocked&&s.key==="revenue"&&<span style={{fontSize:14,fontFamily:"Jost,sans-serif",marginLeft:4,opacity:0.7}}>{(s as any).suffix}</span>}
+                {s.key!=="revenue"&&(s as any).suffix&&<span style={{fontSize:14,fontFamily:"Jost,sans-serif",marginLeft:4,opacity:0.7}}>{(s as any).suffix}</span>}
               </p>
             </div>
           ))}
@@ -353,7 +512,7 @@ export default function AdminPage() {
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:`2px solid ${border}`,marginBottom:28}}>
           {(["orders","products","reviews","settings"] as const).map(t=>(
-            <button key={t} onClick={()=>setActiveTab(t)} style={{background:"none",border:"none",borderBottom:activeTab===t?`3px solid ${accent}`:"3px solid transparent",padding:"14px 28px",fontSize:12,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",color:activeTab===t?text:textSub,fontFamily:"Jost,sans-serif",marginBottom:-2,fontWeight:activeTab===t?600:400}}>
+            <button key={t} onClick={()=>openTab(t)} style={{background:"none",border:"none",borderBottom:activeTab===t?`3px solid ${accent}`:"3px solid transparent",padding:"14px 28px",fontSize:12,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",color:activeTab===t?text:textSub,fontFamily:"Jost,sans-serif",marginBottom:-2,fontWeight:activeTab===t?600:400}}>
               {t==="orders"?(lang==="ar"?"الطلبات":"Orders"):t==="products"?(lang==="ar"?"المنتجات":"Products"):t==="reviews"?(lang==="ar"?"التقييمات":"Reviews"):(lang==="ar"?"الإعدادات":"Settings")}
             </button>
           ))}
@@ -380,9 +539,17 @@ export default function AdminPage() {
                 </button>
                 {selectedOrders.size>0&&<>
                   <span style={{fontSize:12,color:accent,fontWeight:600}}>{selectedOrders.size} {lang==="ar"?"محدد":"selected"}</span>
-                  <button onClick={bulkAdvance} style={{background:accent,color:"#fff",border:"none",padding:"6px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",letterSpacing:1}}>
-                    {lang==="ar"?"تقديم الحالة للمحدد":"Advance Selected →"}
-                  </button>
+                  {[...selectedOrders].some(id=>orders.find(o=>o.id===id)?.status!=="delivered"&&orders.find(o=>o.id===id)?.status!=="denied")&&(
+                    <button onClick={bulkSendConfirmation} style={{background:"#25D366",color:"#fff",border:"none",padding:"6px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",letterSpacing:1,display:"flex",alignItems:"center",gap:6}}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12c0 1.8.5 3.5 1.3 5L2 22l5.2-1.4c1.4.8 3.1 1.2 4.8 1.2 5.5 0 10-4.5 10-10S17.5 2 12 2zm0 18c-1.5 0-3-.4-4.2-1.1l-.3-.2-3.1.8.8-3-.2-.3C4.4 15 4 13.5 4 12c0-4.4 3.6-8 8-8s8 3.6 8 8-3.6 8-8 8z"/></svg>
+                      {lang==="ar"?"إرسال تأكيد للمحدد":"Send Confirmation"}
+                    </button>
+                  )}
+                  {[...selectedOrders].some(id=>{const s=orders.find(o=>o.id===id)?.status;return s&&STATUS_FLOW[s];})&&(
+                    <button onClick={bulkAdvance} style={{background:"#22C55E",color:"#fff",border:"none",padding:"6px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",letterSpacing:1}}>
+                      {lang==="ar"?"قبول/تقديم المحدد →":"Approve / Advance Selected →"}
+                    </button>
+                  )}
                   <button onClick={bulkDeleteStart} style={{background:dark?"#2A0000":"#FEF2F2",border:"1px solid #EF4444",color:"#EF4444",padding:"6px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",letterSpacing:1,fontWeight:600}}>
                     {lang==="ar"?"حذف المحدد":"Delete Selected"}
                   </button>
@@ -687,7 +854,7 @@ export default function AdminPage() {
             </div>
 
             {/* Two-column settings */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
 
               {/* Delivery Fees */}
               <SettingsCard title={lang==="ar"?"رسوم التوصيل":"Delivery Fees"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
@@ -710,17 +877,55 @@ export default function AdminPage() {
               <SettingsCard title={lang==="ar"?"معلومات CliQ":"CliQ Info"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
                 <div style={{display:"grid",gap:12,marginBottom:14}}>
                   <div>
-                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الأليياس":"CliQ Alias"}</label>
-                    <input type="text" value={cliqInfo.alias} onChange={e=>setCliqInfo(c=>({...c,alias:e.target.value}))} style={inp} />
+                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الأليياس":"CliQ Alias"} <span style={{color:"#EF4444"}}>*</span></label>
+                    <input type="text" required value={cliqInfo.alias} onChange={e=>setCliqInfo(c=>({...c,alias:e.target.value}))} style={inp} />
                   </div>
                   <div>
-                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"البنك":"Bank"}</label>
-                    <input type="text" value={cliqInfo.bank} onChange={e=>setCliqInfo(c=>({...c,bank:e.target.value}))} style={inp} />
+                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"البنك":"Bank"} <span style={{color:"#EF4444"}}>*</span></label>
+                    <input type="text" required value={cliqInfo.bank} onChange={e=>setCliqInfo(c=>({...c,bank:e.target.value}))} style={inp} />
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الاسم الذي يظهر عند التحويل":"Name shown on transfer"} <span style={{color:"#EF4444"}}>*</span></label>
+                    <input type="text" required value={cliqInfo.retrievedName} onChange={e=>setCliqInfo(c=>({...c,retrievedName:e.target.value}))} style={inp} />
                   </div>
                 </div>
                 <button onClick={saveCliqInfo} disabled={savingCliq} style={{background:savingCliq?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:savingCliq?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>
                   {savingCliq?(lang==="ar"?"حفظ...":"Saving..."):(lang==="ar"?"حفظ":"Save")}
                 </button>
+              </SettingsCard>
+
+              <SettingsCard title={lang==="ar"?"الأمان":"Security"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
+                <div style={{display:"grid",gap:12,marginBottom:14}}>
+                  <p style={{fontSize:11,letterSpacing:1,textTransform:"uppercase",color:textSub,margin:0}}>{lang==="ar"?"تغيير رمز PIN":"Change PIN"}</p>
+                  <input type="password" inputMode="numeric" placeholder={lang==="ar"?"الرمز الحالي":"Current PIN"} value={curPin} onChange={e=>setCurPin(e.target.value)} style={inp} />
+                  <input type="password" inputMode="numeric" placeholder={lang==="ar"?"الرمز الجديد":"New PIN"} value={newPin} onChange={e=>setNewPin(e.target.value)} style={inp} />
+                  <input type="password" inputMode="numeric" placeholder={lang==="ar"?"تأكيد الرمز الجديد":"Confirm new PIN"} value={confirmPin} onChange={e=>setConfirmPin(e.target.value)} style={inp} />
+                  <div style={{display:"flex",gap:10}}>
+                    <button onClick={changePin} disabled={savingPin} style={{background:savingPin?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:savingPin?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>
+                      {savingPin?(lang==="ar"?"حفظ...":"Saving..."):(lang==="ar"?"تغيير الرمز":"Change PIN")}
+                    </button>
+                    <button onClick={resetPin} disabled={savingPin} style={{background:"none",color:text,border:`1px solid ${border}`,padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:savingPin?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>
+                      {lang==="ar"?"إعادة تعيين إلى 1111":"Reset to 1111"}
+                    </button>
+                  </div>
+                </div>
+                <div style={{display:"grid",gap:12,marginBottom:14,paddingTop:14,borderTop:`1px solid ${border}`}}>
+                  <p style={{fontSize:11,letterSpacing:1,textTransform:"uppercase",color:textSub,margin:0}}>{lang==="ar"?"تغيير البريد الإلكتروني":"Change Email"} {userEmail&&<span style={{color:textSub,textTransform:"none",letterSpacing:0}}>({userEmail})</span>}</p>
+                  <input type="email" placeholder={lang==="ar"?"البريد الإلكتروني الجديد":"New email"} value={newEmail} onChange={e=>setNewEmail(e.target.value)} style={inp} />
+                  <button onClick={changeEmail} disabled={savingEmail} style={{background:savingEmail?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:savingEmail?"not-allowed":"pointer",fontFamily:"Jost,sans-serif",width:"fit-content"}}>
+                    {savingEmail?(lang==="ar"?"إرسال...":"Sending..."):(lang==="ar"?"تغيير البريد":"Change Email")}
+                  </button>
+                  <p style={{fontSize:11,color:textSub,margin:0}}>{lang==="ar"?"سيتم إرسال رابط تأكيد إلى البريد الجديد":"A confirmation link will be sent to the new email"}</p>
+                </div>
+                <div style={{display:"grid",gap:12,paddingTop:14,borderTop:`1px solid ${border}`}}>
+                  <p style={{fontSize:11,letterSpacing:1,textTransform:"uppercase",color:textSub,margin:0}}>{lang==="ar"?"تغيير كلمة المرور":"Change Password"}</p>
+                  <input type="password" placeholder={lang==="ar"?"كلمة المرور الحالية":"Current password"} value={curPassword} onChange={e=>setCurPassword(e.target.value)} style={inp} />
+                  <input type="password" placeholder={lang==="ar"?"كلمة المرور الجديدة":"New password"} value={newPassword} onChange={e=>setNewPassword(e.target.value)} style={inp} />
+                  <input type="password" placeholder={lang==="ar"?"تأكيد كلمة المرور":"Confirm new password"} value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} style={inp} />
+                  <button onClick={changePassword} disabled={savingPassword} style={{background:savingPassword?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:savingPassword?"not-allowed":"pointer",fontFamily:"Jost,sans-serif",width:"fit-content"}}>
+                    {savingPassword?(lang==="ar"?"حفظ...":"Saving..."):(lang==="ar"?"تغيير كلمة المرور":"Change Password")}
+                  </button>
+                </div>
               </SettingsCard>
 
               {/* Categories */}
@@ -765,6 +970,27 @@ export default function AdminPage() {
         )}
       </div>
 
+      {/* BULK CONFIRMATION SEND — each send is its own click so browsers don't block the popup */}
+      {confirmModal&&(
+        <div style={{position:"fixed",inset:0,zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(0,0,0,0.6)"}} onClick={()=>setConfirmModal(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:cardBg,border:`1px solid ${border}`,padding:"28px 32px",width:"100%",maxWidth:440,maxHeight:"80vh",overflowY:"auto"}}>
+            <h3 style={{fontFamily:"Cormorant Garamond,serif",fontSize:20,fontWeight:300,color:text,marginBottom:6,marginTop:0}}>{lang==="ar"?"إرسال رسائل تأكيد":"Send Confirmation Messages"}</h3>
+            <p style={{fontSize:12,color:textSub,marginBottom:18}}>{lang==="ar"?"بسبب قيود المتصفح، اضغط إرسال لكل عميل على حدة — كل رسالة مخصصة باسمه ومجموعه.":"Due to browser limits, click Send for each customer individually — each message is personalized to their own name and total."}</p>
+            {confirmModal.map(order=>(
+              <div key={order.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${border}`}}>
+                <div>
+                  <p style={{fontSize:13,color:text,margin:"0 0 2px",fontWeight:600}}>{order.customer_name}</p>
+                  <p style={{fontSize:11,color:textSub,margin:0}}>#{order.id} · {order.phone} · {typeof order.total_price==="number"?order.total_price.toFixed(3):order.total_price} JOD</p>
+                </div>
+                <button onClick={()=>{waConfirm(order);setConfirmSent(s=>new Set(s).add(order.id));}} style={{background:confirmSent.has(order.id)?"#9A8B7A":"#25D366",color:"#fff",border:"none",padding:"8px 16px",fontSize:11,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600,whiteSpace:"nowrap"}}>
+                  {confirmSent.has(order.id)?(lang==="ar"?"تم الإرسال ✓":"Sent ✓"):(lang==="ar"?"إرسال":"Send")}
+                </button>
+              </div>
+            ))}
+            <button onClick={()=>{setConfirmModal(null);clearSelection();}} style={{marginTop:18,background:"transparent",border:`1px solid ${border}`,color:textSub,padding:"8px 20px",fontSize:11,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",width:"100%"}}>{lang==="ar"?"تم":"Done"}</button>
+          </div>
+        </div>
+      )}
       {/* DENY MODAL — Fix #8: WA deny button */}
       {denyModal&&(
         <div style={{position:"fixed",inset:0,zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,background:"rgba(0,0,0,0.6)"}}>
