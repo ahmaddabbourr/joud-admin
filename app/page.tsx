@@ -52,6 +52,25 @@ function SettingsCard({title,accent,cardBg,border,text,dark,children}:{title:str
   );
 }
 
+function TransferImage({url,border}:{url:string;border:string}) {
+  const [signedUrl, setSignedUrl] = useState<string|null>(null);
+  useEffect(()=>{
+    let cancelled=false;
+    const path=url.split("/transfer-screenshots/")[1];
+    if(!path){setSignedUrl(url);return;}
+    supabase.storage.from("transfer-screenshots").createSignedUrl(path,3600).then(({data})=>{
+      if(!cancelled&&data?.signedUrl)setSignedUrl(data.signedUrl);
+    });
+    return()=>{cancelled=true;};
+  },[url]);
+  if(!signedUrl)return null;
+  return (
+    <a href={signedUrl} target="_blank" rel="noopener noreferrer">
+      <img src={signedUrl} alt="transfer" style={{maxWidth:260,maxHeight:160,objectFit:"contain",border:`1px solid ${border}`,cursor:"pointer"}} />
+    </a>
+  );
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -82,6 +101,8 @@ export default function AdminPage() {
 
   // Settings — Fix #12: shipping fees editable
   const [shippingFees, setShippingFees] = useState({amman:0,outside:2});
+  const [cliqInfo, setCliqInfo] = useState({alias:"",bank:""});
+  const [savingCliq, setSavingCliq] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [adminCategories, setAdminCategories] = useState<{id:number;name:string;name_ar:string;slug:string}[]>([]);
   const [newCatName, setNewCatName] = useState("");
@@ -109,7 +130,17 @@ export default function AdminPage() {
     return()=>sub.subscription.unsubscribe();
   },[]);
   const handleLogout=async()=>{await supabase.auth.signOut();router.replace("/login");};
-  useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();fetchCategories();fetchWAMessages();fetchReviews();}},[isAuthenticated]);
+  const [actionLoading,setActionLoading]=useState(false);
+  // Wraps server-action calls: shows a loading overlay, redirects to /login if the session expired server-side, otherwise surfaces the error
+  const runAction=async(fn:()=>Promise<any>):Promise<boolean>=>{
+    setActionLoading(true);
+    try{await fn();return true;}
+    catch(e:any){
+      if(e?.message==="Not authenticated"){router.replace("/login");return false;}
+      showMsg(e?.message||"Error");return false;
+    }finally{setActionLoading(false);}
+  };
+  useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();fetchCliqInfo();fetchCategories();fetchWAMessages();fetchReviews();}},[isAuthenticated]);
 
   // Notification sound for new orders — polls every 15 seconds
   const lastOrderCountRef = useRef(0);
@@ -118,7 +149,7 @@ export default function AdminPage() {
 
   useEffect(()=>{
     // Create audio element with a base64 beep sound
-    const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVggoqFdVxRaIG0teleQT1dj6atlGlERVuNq6SMaUFEXJCspolkP0Jckq2jiGA9QF6Ur6SHXT1CYZavooNaO0Fkl6+gf1c6QGaZsJ57VDlBaJqxnXhRN0FqnLObd044QmsAAABkYW==");
+    const audio = new Audio("data:audio/wav;base64,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");
     audio.volume = 1;
     audioRef.current = audio;
   },[]);
@@ -136,10 +167,11 @@ export default function AdminPage() {
       const{data}=await supabase.from("orders").select("id",{count:"exact"}).eq("status","pending");
       const count = data?.length || 0;
       if(lastOrderCountRef.current > 0 && count > lastOrderCountRef.current) {
-        playNotification();
         showMsg(lang==="ar"?"🔔 طلب جديد!":"🔔 New order received!");
         fetchOrders();
       }
+      // Keep ringing every cycle as long as there's a pending order, so it's never missed
+      if(count > 0) playNotification();
       lastOrderCountRef.current = count;
     }, 15000);
     return ()=>clearInterval(interval);
@@ -151,6 +183,7 @@ export default function AdminPage() {
   const fetchReviews=async()=>{const{data}=await supabase.from("reviews").select("*").order("created_at",{ascending:false});if(data)setAdminReviews(data);};
   const fetchWAMessages=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","wa_messages").single();if(data?.value){setWaApproveMsg(data.value.approve||waApproveMsg);setWaDenyMsg(data.value.deny||waDenyMsg);}};
   const fetchSettings=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","shipping_fees").single();if(data?.value)setShippingFees(data.value);};
+  const fetchCliqInfo=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","cliq").single();if(data?.value)setCliqInfo({alias:data.value.alias||"",bank:data.value.bank||""});};
 
   // Fix #7: different message on each wrong attempt
   const resetForm=()=>{setPName("");setPNameAr("");setPEmoji("🪔");setPPrice("");setPDiscount("");setPDesc("");setPDescAr("");setPCategory("perfume");setPImageFile(null);setPImagePreview("");setPImageKey(k=>k+1);setEditingProduct(null);setShowForm(false);};
@@ -160,7 +193,7 @@ export default function AdminPage() {
     try{
       const fd=new FormData();fd.append("file",file);
       return await uploadProductImage(fd);
-    }catch(e:any){showMsg("Upload failed: "+e.message);return null;}
+    }catch(e:any){if(e?.message==="Not authenticated"){router.replace("/login");return null;}showMsg("Upload failed: "+e.message);return null;}
   };
 
   const origPrice=parseFloat(pPrice)||0;
@@ -173,21 +206,23 @@ export default function AdminPage() {
     let image_url=pImagePreview&&!pImagePreview.startsWith("data:")?pImagePreview:(editingProduct?.image_url||"");
     if(pImageFile){setPImageUploading(true);const url=await uploadImage(pImageFile);setPImageUploading(false);if(!url)return;image_url=url;}
     const payload={name:pName,nameAr:pNameAr,emoji:pEmoji,image_url,price:finalPrice,original_price:origPrice,discount:discountPct,desc:pDesc,descAr:pDescAr,category:pCategory};
-    try{await saveProduct(payload,editingProduct?.id);showMsg(editingProduct?"Updated!":"Added!");fetchProducts();resetForm();}catch(e:any){showMsg(e.message);}
+    if(!await runAction(()=>saveProduct(payload,editingProduct?.id)))return;
+    showMsg(editingProduct?"Updated!":"Added!");fetchProducts();resetForm();
   };
   const handleDeleteProduct=async(id:number)=>{
     if(!confirm(lang==="ar"?"حذف هذا المنتج؟":"Delete this product?"))return;
-    try{await deleteProduct(id);showMsg("Deleted");fetchProducts();}catch(e:any){showMsg(e.message);}
+    if(!await runAction(()=>deleteProduct(id)))return;
+    showMsg("Deleted");fetchProducts();
   };
   const toggleStock=async(id:number,field:"out_of_stock"|"sold_out",current:boolean)=>{
-    await toggleProductStock(id,field,current);
+    if(!await runAction(()=>toggleProductStock(id,field,current)))return;
     showMsg(!current?(field==="out_of_stock"?(lang==="ar"?"غير متوفر":"Out of stock"):(lang==="ar"?"تم البيع":"Sold out")):(lang==="ar"?"متوفر":"Available"));
     fetchProducts();
   };
 
-  const approveOrder=async(id:number)=>{await setOrderStatus(id,"confirmed");showMsg(lang==="ar"?"تم القبول":"Approved");fetchOrders();};
-  const advanceStatus=async(order:Order)=>{const next=STATUS_FLOW[order.status];if(!next)return;await setOrderStatus(order.id,next);showMsg(`→ ${next}`);fetchOrders();};
-  const denyOrder=async()=>{if(!denyModal)return;await setOrderStatus(denyModal.id,"denied",denyReason);showMsg(lang==="ar"?"تم الرفض":"Denied");setDenyModal(null);setDenyReason("");fetchOrders();};
+  const approveOrder=async(id:number)=>{if(!await runAction(()=>setOrderStatus(id,"confirmed")))return;showMsg(lang==="ar"?"تم القبول":"Approved");fetchOrders();};
+  const advanceStatus=async(order:Order)=>{const next=STATUS_FLOW[order.status];if(!next)return;if(!await runAction(()=>setOrderStatus(order.id,next)))return;showMsg(`→ ${next}`);fetchOrders();};
+  const denyOrder=async()=>{if(!denyModal)return;if(!await runAction(()=>setOrderStatus(denyModal.id,"denied",denyReason)))return;showMsg(lang==="ar"?"تم الرفض":"Denied");setDenyModal(null);setDenyReason("");fetchOrders();};
 
   // WhatsApp: send confirm message to customer
   const waConfirm=(order:Order)=>{
@@ -204,10 +239,10 @@ export default function AdminPage() {
   const confirmDelete=async()=>{
     if(!deleteModal)return;
     if(deleteModal.type==="single"&&deleteModal.id){
-      await deleteOrders([deleteModal.id]);
+      if(!await runAction(()=>deleteOrders([deleteModal.id])))return;
       showMsg(lang==="ar"?"تم الحذف":"Deleted");
     } else {
-      await deleteOrders([...selectedOrders]);
+      if(!await runAction(()=>deleteOrders([...selectedOrders])))return;
       showMsg(`Deleted ${selectedOrders.size} orders`);clearSelection();
     }
     setDeleteModal(null);fetchOrders();
@@ -226,8 +261,18 @@ export default function AdminPage() {
   // Fix #12: save shipping settings
   const saveSettings=async()=>{
     setSavingSettings(true);
-    await saveSetting("shipping_fees",shippingFees);
-    setSavingSettings(false);showMsg(lang==="ar"?"تم الحفظ":"Settings saved!");
+    const ok=await runAction(()=>saveSetting("shipping_fees",shippingFees));
+    setSavingSettings(false);
+    if(!ok)return;
+    showMsg(lang==="ar"?"تم الحفظ":"Settings saved!");
+  };
+
+  const saveCliqInfo=async()=>{
+    setSavingCliq(true);
+    const ok=await runAction(()=>saveSetting("cliq",cliqInfo));
+    setSavingCliq(false);
+    if(!ok)return;
+    showMsg(lang==="ar"?"تم الحفظ":"Settings saved!");
   };
 
   const filteredOrders=orderFilter==="all"?orders:orders.filter(o=>o.status===orderFilter);
@@ -251,7 +296,12 @@ export default function AdminPage() {
   return(
     <div style={{fontFamily:"Jost,sans-serif",background:bg,minHeight:"100vh",color:text,direction:lang==="ar"?"rtl":"ltr"}}>
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
-      <style>{`@keyframes shake{0%,100%{transform:rotate(0)}20%{transform:rotate(15deg)}40%{transform:rotate(-15deg)}60%{transform:rotate(10deg)}80%{transform:rotate(-10deg)}}`}</style>
+      <style>{`@keyframes shake{0%,100%{transform:rotate(0)}20%{transform:rotate(15deg)}40%{transform:rotate(-15deg)}60%{transform:rotate(10deg)}80%{transform:rotate(-10deg)}}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      {actionLoading&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}>
+          <div style={{width:48,height:48,border:"4px solid rgba(255,255,255,0.25)",borderTopColor:"#D4A84B",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
+        </div>
+      )}
       <nav style={{background:navBg,height:64,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 20px",position:"sticky",top:0,zIndex:100}}>
         <span style={{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#E8DFD0",letterSpacing:3}}>JOUD ALOUD</span>
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
@@ -406,9 +456,7 @@ export default function AdminPage() {
                           {order.transfer_image_url&&(
                             <div style={{marginBottom:14}}>
                               <p style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,margin:"0 0 8px"}}>{lang==="ar"?"لقطة التحويل":"Transfer Screenshot"}</p>
-                              <a href={order.transfer_image_url} target="_blank" rel="noopener noreferrer">
-                                <img src={order.transfer_image_url} alt="transfer" style={{maxWidth:260,maxHeight:160,objectFit:"contain",border:`1px solid ${border}`,cursor:"pointer"}} />
-                              </a>
+                              <TransferImage url={order.transfer_image_url} border={border} />
                             </div>
                           )}
 
@@ -594,10 +642,10 @@ export default function AdminPage() {
                     </div>
                     <div style={{display:"flex",gap:8,flexShrink:0}}>
                       {isPending&&<>
-                        <button onClick={async()=>{await setReviewStatus(r.id,"approved");fetchReviews();showMsg("Approved");}} style={{background:"#22C55E",color:"#fff",border:"none",padding:"8px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600}}>✓</button>
-                        <button onClick={async()=>{await setReviewStatus(r.id,"denied");fetchReviews();showMsg("Denied");}} style={{background:dark?"#2A0000":"#FEF2F2",border:"1px solid #EF4444",color:"#EF4444",padding:"8px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600}}>✕</button>
+                        <button onClick={async()=>{if(!await runAction(()=>setReviewStatus(r.id,"approved")))return;fetchReviews();showMsg("Approved");}} style={{background:"#22C55E",color:"#fff",border:"none",padding:"8px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600}}>✓</button>
+                        <button onClick={async()=>{if(!await runAction(()=>setReviewStatus(r.id,"denied")))return;fetchReviews();showMsg("Denied");}} style={{background:dark?"#2A0000":"#FEF2F2",border:"1px solid #EF4444",color:"#EF4444",padding:"8px 16px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600}}>✕</button>
                       </>}
-                      <button onClick={async()=>{await deleteReview(r.id);fetchReviews();showMsg("Deleted");}} style={{background:"transparent",border:`1px solid ${border}`,color:textSub,padding:"8px 12px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>🗑</button>
+                      <button onClick={async()=>{if(!await runAction(()=>deleteReview(r.id)))return;fetchReviews();showMsg("Deleted");}} style={{background:"transparent",border:`1px solid ${border}`,color:textSub,padding:"8px 12px",fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>🗑</button>
                     </div>
                   </div>
                 );
@@ -658,13 +706,30 @@ export default function AdminPage() {
                 </button>
               </SettingsCard>
 
+              {/* CliQ Info */}
+              <SettingsCard title={lang==="ar"?"معلومات CliQ":"CliQ Info"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
+                <div style={{display:"grid",gap:12,marginBottom:14}}>
+                  <div>
+                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الأليياس":"CliQ Alias"}</label>
+                    <input type="text" value={cliqInfo.alias} onChange={e=>setCliqInfo(c=>({...c,alias:e.target.value}))} style={inp} />
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"البنك":"Bank"}</label>
+                    <input type="text" value={cliqInfo.bank} onChange={e=>setCliqInfo(c=>({...c,bank:e.target.value}))} style={inp} />
+                  </div>
+                </div>
+                <button onClick={saveCliqInfo} disabled={savingCliq} style={{background:savingCliq?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:savingCliq?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>
+                  {savingCliq?(lang==="ar"?"حفظ...":"Saving..."):(lang==="ar"?"حفظ":"Save")}
+                </button>
+              </SettingsCard>
+
               {/* Categories */}
               <SettingsCard title={lang==="ar"?"الفئات":"Categories"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
                 <div style={{marginBottom:12}}>
                   {adminCategories.map(c=>(
                     <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${border}`}}>
                       <div><span style={{fontSize:13,color:text,fontWeight:600}}>{c.name}</span> <span style={{fontSize:11,color:textSub,direction:"rtl"}}>{c.name_ar}</span></div>
-                      <button onClick={async()=>{await deleteCategory(c.id);fetchCategories();}} style={{background:"transparent",border:"none",color:"#EF4444",padding:"2px 8px",fontSize:12,cursor:"pointer"}}>x</button>
+                      <button onClick={async()=>{if(!await runAction(()=>deleteCategory(c.id)))return;fetchCategories();}} style={{background:"transparent",border:"none",color:"#EF4444",padding:"2px 8px",fontSize:12,cursor:"pointer"}}>x</button>
                     </div>
                   ))}
                 </div>
@@ -673,7 +738,7 @@ export default function AdminPage() {
                   <input value={newCatAr} onChange={e=>setNewCatAr(e.target.value)} placeholder="عربي" dir="rtl" style={{...inp,fontSize:12,padding:"8px 10px"}} />
                 </div>
                 <input value={newCatSlug} onChange={e=>setNewCatSlug(e.target.value.toLowerCase().replace(/\s+/g,"-"))} placeholder="slug (e.g. bakhoor)" style={{...inp,fontSize:12,padding:"8px 10px",marginBottom:10}} />
-                <button onClick={async()=>{if(!newCatName||!newCatSlug)return;await addCategory(newCatName,newCatAr,newCatSlug);setNewCatName("");setNewCatAr("");setNewCatSlug("");fetchCategories();showMsg("Added");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 20px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                <button onClick={async()=>{if(!newCatName||!newCatSlug)return;if(!await runAction(()=>addCategory(newCatName,newCatAr,newCatSlug)))return;setNewCatName("");setNewCatAr("");setNewCatSlug("");fetchCategories();showMsg("Added");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 20px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
                   + {lang==="ar"?"إضافة":"Add"}
                 </button>
               </SettingsCard>
@@ -682,7 +747,7 @@ export default function AdminPage() {
               <SettingsCard title={lang==="ar"?"رسالة القبول":"Approve Message"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
                 <p style={{fontSize:10,color:textSub,marginBottom:8}}>{"{name}"} = customer, {"{total}"} = total</p>
                 <textarea value={waApproveMsg} onChange={e=>setWaApproveMsg(e.target.value)} rows={4} style={{...inp,resize:"vertical" as const,fontSize:12,marginBottom:10}} />
-                <button onClick={async()=>{await saveSetting("wa_messages",{approve:waApproveMsg,deny:waDenyMsg});showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                <button onClick={async()=>{if(!await runAction(()=>saveSetting("wa_messages",{approve:waApproveMsg,deny:waDenyMsg})))return;showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
                   {lang==="ar"?"حفظ":"Save"}
                 </button>
               </SettingsCard>
@@ -691,7 +756,7 @@ export default function AdminPage() {
               <SettingsCard title={lang==="ar"?"رسالة الرفض":"Deny Message"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
                 <p style={{fontSize:10,color:textSub,marginBottom:8}}>{"{name}"} = customer, {"{reason}"} = reason</p>
                 <textarea value={waDenyMsg} onChange={e=>setWaDenyMsg(e.target.value)} rows={4} style={{...inp,resize:"vertical" as const,fontSize:12,marginBottom:10}} />
-                <button onClick={async()=>{await saveSetting("wa_messages",{approve:waApproveMsg,deny:waDenyMsg});showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                <button onClick={async()=>{if(!await runAction(()=>saveSetting("wa_messages",{approve:waApproveMsg,deny:waDenyMsg})))return;showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
                   {lang==="ar"?"حفظ":"Save"}
                 </button>
               </SettingsCard>
