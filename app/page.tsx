@@ -339,7 +339,7 @@ export default function AdminPage() {
   const confirmDelete=async()=>{
     if(!deleteModal)return;
     if(deleteModal.type==="single"&&deleteModal.id){
-      if(!await runAction(()=>deleteOrders([deleteModal.id])))return;
+      if(!await runAction(()=>deleteOrders([deleteModal.id!])))return;
       showMsg(lang==="ar"?"تم الحذف":"Deleted");
     } else {
       if(!await runAction(()=>deleteOrders([...selectedOrders])))return;
@@ -438,7 +438,7 @@ export default function AdminPage() {
               {notifOpen&&(
                 <>
                   <div onClick={()=>setNotifOpen(false)} style={{position:"fixed",inset:0,zIndex:199}} />
-                  <div style={{position:"absolute",top:"100%",right:0,marginTop:6,width:300,maxHeight:380,overflowY:"auto",background:cardBg,border:`1px solid ${border}`,boxShadow:"0 8px 24px rgba(0,0,0,0.25)",zIndex:200}}>
+                  <div className="notif-dropdown" style={{position:"absolute",top:"100%",right:0,marginTop:6,width:300,maxWidth:"calc(100vw - 32px)",maxHeight:380,overflowY:"auto",background:cardBg,border:`1px solid ${border}`,boxShadow:"0 8px 24px rgba(0,0,0,0.25)",zIndex:200}}>
                     <div style={{padding:"12px 16px",borderBottom:`1px solid ${border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <span style={{fontSize:12,letterSpacing:1,textTransform:"uppercase",color:text,fontWeight:600}}>{lang==="ar"?"الإشعارات":"Notifications"}</span>
                       <button onClick={()=>{setActiveTab("orders");setOrderFilter("pending");setNotifOpen(false);}} style={{background:"none",border:"none",color:accent,fontSize:11,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>{lang==="ar"?"عرض المعلقة":"View pending"}</button>
@@ -479,9 +479,9 @@ export default function AdminPage() {
         <button onClick={()=>{handleLogout();setActiveTab("orders");setOrderFilter("all");setAdminMenu(false);}} style={{background:"none",border:"none",color:"#EF4444",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{lang==="ar"?"خروج":"Logout"}</button>
       </div>
 
-      <div style={{maxWidth:1280,margin:"0 auto",padding:"40px 32px"}}>
+      <div className="admin-container" style={{maxWidth:1280,margin:"0 auto",padding:"40px 32px"}}>
         {/* Stats */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:36}}>
+        <div className="grid-4" style={{display:"grid",gap:16,marginBottom:36}}>
           {[
             {key:"orders",label:lang==="ar"?"إجمالي الطلبات":"Total Orders",value:String(orders.length),color:text},
             {key:"pending",label:lang==="ar"?"قيد الانتظار":"Pending",value:String(pending),color:"#F59E0B"},
@@ -591,7 +591,7 @@ export default function AdminPage() {
 
                       {isExpanded&&(
                         <div style={{padding:"0 22px 18px",borderTop:`1px solid ${border}`}}>
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginTop:14,marginBottom:14}}>
+                          <div className="grid-2" style={{display:"grid",gap:14,marginTop:14,marginBottom:14}}>
                             {[
                               {l:lang==="ar"?"العميل":"Customer",v:order.customer_name},
                               {l:lang==="ar"?"الهاتف":"Phone",v:order.phone},
@@ -701,13 +701,13 @@ export default function AdminPage() {
                     </div>
                   </div>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+                <div className="grid-3" style={{display:"grid",gap:14,marginBottom:14}}>
                   {[{l:lang==="ar"?"الاسم (إنجليزي)":"Name (EN)",v:pName,s:setPName,ph:"Oud Al Layl"},{l:lang==="ar"?"الاسم (عربي)":"Name (AR)",v:pNameAr,s:setPNameAr,ph:"عود الليل"}].map(f=>(
                     <div key={f.l}><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{f.l}</label><input value={f.v} onChange={e=>f.s(e.target.value)} placeholder={f.ph} style={inp} /></div>
                   ))}
                   <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الفئة":"Category"}</label><select value={pCategory} onChange={e=>setPCategory(e.target.value)} style={{...inp}}>{adminCategories.map(c=><option key={c.slug} value={c.slug}>{lang==="ar"?c.name_ar:c.name}</option>)}</select></div>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+                <div className="grid-3" style={{display:"grid",gap:14,marginBottom:14}}>
                   <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر الأصلي (JOD)":"Original Price"}</label><input value={pPrice} onChange={e=>setPPrice(e.target.value)} placeholder="28" type="number" step="0.001" style={inp} /></div>
                   <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الخصم %":"Discount %"}</label><input value={pDiscount} onChange={e=>setPDiscount(e.target.value)} placeholder="0" type="number" min="0" max="100" style={inp} /></div>
                   <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر النهائي":"Final Price"}</label>
@@ -718,7 +718,7 @@ export default function AdminPage() {
                     </div>
                   </div>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+                <div className="grid-2" style={{display:"grid",gap:14,marginBottom:20}}>
                   {[{l:lang==="ar"?"الوصف (إنجليزي)":"Description (EN)",v:pDesc,s:setPDesc,ph:"Product description...",dir:"ltr"},{l:lang==="ar"?"الوصف (عربي)":"Description (AR)",v:pDescAr,s:setPDescAr,ph:"وصف المنتج...",dir:"rtl"}].map(f=>(
                     <div key={f.l}><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{f.l}</label><textarea value={f.v} onChange={e=>f.s(e.target.value)} rows={3} placeholder={f.ph} dir={f.dir} style={{...inp,resize:"vertical" as const}} /></div>
                   ))}
@@ -779,7 +779,7 @@ export default function AdminPage() {
         {/* ── REVIEWS ── */}
         {activeTab==="reviews"&&(
           <div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:28}}>
+            <div className="grid-3" style={{display:"grid",gap:14,marginBottom:28}}>
               {[
                 {label:lang==="ar"?"إجمالي التقييمات":"Total Reviews",value:adminReviews.length,color:text},
                 {label:lang==="ar"?"قيد المراجعة":"Pending",value:adminReviews.filter(r=>r.status==="pending").length,color:"#F59E0B"},
@@ -854,7 +854,7 @@ export default function AdminPage() {
             </div>
 
             {/* Two-column settings */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
+            <div className="grid-2" style={{display:"grid",gap:20,alignItems:"start"}}>
 
               {/* Delivery Fees */}
               <SettingsCard title={lang==="ar"?"رسوم التوصيل":"Delivery Fees"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
@@ -938,7 +938,7 @@ export default function AdminPage() {
                     </div>
                   ))}
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                <div className="grid-2" style={{display:"grid",gap:8,marginBottom:10}}>
                   <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="Name" style={{...inp,fontSize:12,padding:"8px 10px"}} />
                   <input value={newCatAr} onChange={e=>setNewCatAr(e.target.value)} placeholder="عربي" dir="rtl" style={{...inp,fontSize:12,padding:"8px 10px"}} />
                 </div>
