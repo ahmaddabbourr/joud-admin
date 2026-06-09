@@ -54,7 +54,7 @@ export default function LoginPage() {
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
       <div style={{ position: "fixed", top: 20, right: 20, display: "flex", gap: 8 }}>
         <button onClick={() => setLang(l => l === "en" ? "ar" : "en")} style={{ background: "transparent", border: `1px solid ${border}`, color: textSub, padding: "6px 16px", fontSize: 11, letterSpacing: 1, cursor: "pointer", fontFamily: "Jost,sans-serif" }}>{lang === "en" ? "العربية" : "English"}</button>
-        <button onClick={() => setDark(d => !d)} style={{ background: "transparent", border: `1px solid ${border}`, color: textSub, padding: "6px 12px", fontSize: 14, cursor: "pointer" }}>{dark ? "☀️" : "🌙"}</button>
+        <button onClick={() => setDark(d => !d)} style={{ background: "transparent", border: `1px solid ${border}`, color: textSub, padding: "6px 12px", fontSize: 14, cursor: "pointer" }}>{<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="5"/><path d="M12 7V5M12 19v-2M7 12H5M19 12h-2M8.5 8.5 7 7M17 17l-1.5-1.5M8.5 15.5 7 17M17 7l-1.5 1.5"/><path d="M12 7a5 5 0 0 1 0 10V7z" fill="currentColor" stroke="none"/></svg>}</button>
       </div>
       {!forgot ? (
       <form onSubmit={handleLogin} style={{ background: cardBg, border: `1px solid ${border}`, padding: "52px 44px", width: 380, textAlign: "center" }}>

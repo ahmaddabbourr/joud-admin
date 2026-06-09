@@ -14,10 +14,10 @@ export async function saveProduct(payload: Record<string, any>, editingId?: numb
   const supabase = await requireUser();
   if (editingId) {
     const { error } = await supabase.from("products").update(payload).eq("id", editingId);
-    if (error) throw new Error(error.message);
+    if (error) { console.error("saveProduct update failed:", error.message, error); throw new Error(error.message); }
   } else {
     const { error } = await supabase.from("products").insert([payload]);
-    if (error) throw new Error(error.message);
+    if (error) { console.error("saveProduct insert failed:", error.message, error); throw new Error(error.message); }
   }
 }
 
@@ -43,8 +43,8 @@ export async function uploadProductImage(formData: FormData) {
 
   const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
   const path = `products/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-  const { error } = await supabase.storage.from("product-images").upload(path, file, { upsert: true, contentType: file.type });
-  if (error) throw new Error(error.message);
+  const { error } = await supabase.storage.from("product-images").upload(path, file, { upsert: false, contentType: file.type });
+  if (error) { console.error("uploadProductImage failed:", error.message, error); throw new Error(error.message); }
   return supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl;
 }
 

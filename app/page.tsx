@@ -148,6 +148,7 @@ export default function AdminPage() {
   const [showForm, setShowForm] = useState(false); const [editingProduct, setEditingProduct] = useState<Product|null>(null);
   const [pName, setPName] = useState(""); const [pNameAr, setPNameAr] = useState(""); const [pEmoji, setPEmoji] = useState("🪔");
   const [pImageFile, setPImageFile] = useState<File|null>(null); const [pImagePreview, setPImagePreview] = useState(""); const [pImageUploading, setPImageUploading] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
   const [pImageKey, setPImageKey] = useState(0); // Fix #1: reset input key
   const [pPrice, setPPrice] = useState(""); const [pDiscount, setPDiscount] = useState("0");
   const [pDesc, setPDesc] = useState(""); const [pDescAr, setPDescAr] = useState(""); const [pCategory, setPCategory] = useState("perfume");
@@ -194,6 +195,11 @@ export default function AdminPage() {
       if(!session?.user)router.replace("/login");
     });
     return()=>sub.subscription.unsubscribe();
+  },[]);
+  useEffect(()=>{
+    const onScroll=()=>setAdminMenu(false);
+    window.addEventListener("scroll",onScroll,{passive:true});
+    return()=>window.removeEventListener("scroll",onScroll);
   },[]);
   const handleLogout=async()=>{await supabase.auth.signOut();router.replace("/login");};
   const [actionLoading,setActionLoading]=useState(false);
@@ -458,9 +464,9 @@ export default function AdminPage() {
             <button onClick={()=>openTab("settings")} style={{background:"transparent",border:activeTab==="settings"?`1px solid ${accent}`:"1px solid transparent",color:activeTab==="settings"?accent:"#D4C4B0",padding:"7px 14px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>
               {lang==="ar"?"الإعدادات":"Settings"}
             </button>
-            <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 16px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="en"?"العربية":"English"}</button>
-            <button onClick={()=>setDark(d=>!d)} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 12px",fontSize:16,cursor:"pointer"}}>{dark?"☀️":"🌙"}</button>
-            <button onClick={()=>{handleLogout();setActiveTab("orders");setOrderFilter("all");}} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"7px 20px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="ar"?"خروج":"Logout"}</button>
+            <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"6px 16px",fontSize:11,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="en"?"العربية":"English"}</button>
+            <button onClick={()=>setDark(d=>!d)} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"6px 16px",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center"}}>{<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="5"/><path d="M12 7V5M12 19v-2M7 12H5M19 12h-2M8.5 8.5 7 7M17 17l-1.5-1.5M8.5 15.5 7 17M17 7l-1.5 1.5"/><path d="M12 7a5 5 0 0 1 0 10V7z" fill="currentColor" stroke="none"/></svg>}</button>
+            <button onClick={()=>{handleLogout();setActiveTab("orders");setOrderFilter("all");}} style={{background:"transparent",border:"1px solid #6A5A48",color:"#D4C4B0",padding:"6px 16px",fontSize:11,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>{lang==="ar"?"خروج":"Logout"}</button>
           </div>
           {/* Hamburger — mobile */}
           <button className="admin-mobile-btn" onClick={()=>setAdminMenu(m=>!m)} style={{background:"none",border:"none",cursor:"pointer",padding:6,alignItems:"center",justifyContent:"center"}}>
@@ -475,7 +481,7 @@ export default function AdminPage() {
         </button>
         <div style={{borderTop:"1px solid #6A5A48",margin:"6px 0"}} />
         <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{lang==="en"?"العربية":"English"}</button>
-        <button onClick={()=>{setDark(d=>!d);setAdminMenu(false);}} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{dark?"☀️ Light":"🌙 Dark"}</button>
+        <button onClick={()=>{setDark(d=>!d);setAdminMenu(false);}} style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}><span style={{display:"flex",alignItems:"center",gap:6}}>{dark?"Light":"Dark"}<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="5"/><path d="M12 7V5M12 19v-2M7 12H5M19 12h-2M8.5 8.5 7 7M17 17l-1.5-1.5M8.5 15.5 7 17M17 7l-1.5 1.5"/><path d="M12 7a5 5 0 0 1 0 10V7z" fill="currentColor" stroke="none"/></svg></span></button>
         <button onClick={()=>{handleLogout();setActiveTab("orders");setOrderFilter("all");setAdminMenu(false);}} style={{background:"none",border:"none",color:"#EF4444",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>{lang==="ar"?"خروج":"Logout"}</button>
       </div>
 
@@ -510,9 +516,9 @@ export default function AdminPage() {
         </div>
 
         {/* Tabs */}
-        <div style={{display:"flex",borderBottom:`2px solid ${border}`,marginBottom:28}}>
+        <div className="admin-tabs" style={{display:"flex",borderBottom:`2px solid ${border}`,marginBottom:28,overflowX:"auto",WebkitOverflowScrolling:"touch" as any,background:bg} as any}>
           {(["orders","products","reviews","settings"] as const).map(t=>(
-            <button key={t} onClick={()=>openTab(t)} style={{background:"none",border:"none",borderBottom:activeTab===t?`3px solid ${accent}`:"3px solid transparent",padding:"14px 28px",fontSize:12,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",color:activeTab===t?text:textSub,fontFamily:"Jost,sans-serif",marginBottom:-2,fontWeight:activeTab===t?600:400}}>
+            <button key={t} onClick={()=>openTab(t)} style={{background:"none",border:"none",borderBottom:activeTab===t?`3px solid ${accent}`:"3px solid transparent",padding:"14px 20px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",color:activeTab===t?text:textSub,fontFamily:"Jost,sans-serif",marginBottom:-2,fontWeight:activeTab===t?600:400,whiteSpace:"nowrap",flexShrink:0}}>
               {t==="orders"?(lang==="ar"?"الطلبات":"Orders"):t==="products"?(lang==="ar"?"المنتجات":"Products"):t==="reviews"?(lang==="ar"?"التقييمات":"Reviews"):(lang==="ar"?"الإعدادات":"Settings")}
             </button>
           ))}
@@ -690,7 +696,7 @@ export default function AdminPage() {
                   <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:7,display:"block"}}>{lang==="ar"?"صورة المنتج":"Product Image"}</label>
                   <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
                     {pImagePreview
-                      ?<div style={{position:"relative",width:90,height:90,flexShrink:0}}><img src={pImagePreview} alt="preview" style={{width:90,height:90,objectFit:"cover",border:`1px solid ${border}`}} /><button type="button" onClick={()=>{setPImagePreview("");setPImageFile(null);setPImageKey(k=>k+1);}} style={{position:"absolute",top:-8,right:-8,background:"#EF4444",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button></div>
+                      ?<div style={{position:"relative",width:90,height:90,flexShrink:0}}><img src={pImagePreview} alt="preview" onClick={()=>setLightboxSrc(pImagePreview)} style={{width:90,height:90,objectFit:"cover",border:`1px solid ${border}`,cursor:"zoom-in"}} /><button type="button" onClick={()=>{setPImagePreview("");setPImageFile(null);setPImageKey(k=>k+1);}} style={{position:"absolute",top:-8,right:-8,background:"#EF4444",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button></div>
                       :<div onClick={()=>fileInputRef.current?.click()} style={{width:90,height:90,border:`2px dashed ${border}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",color:textSub,fontSize:11,gap:4,flexShrink:0}}><span style={{fontSize:22}}>📷</span><span>{lang==="ar"?"رفع":"Upload"}</span></div>
                     }
                     <div style={{flex:1}}>
@@ -742,7 +748,7 @@ export default function AdminPage() {
                     const orig=p.original_price||p.price;
                     return(
                       <tr key={p.id} style={{borderBottom:`1px solid ${border}`}}>
-                        <td style={{padding:"12px 16px",width:68}}>{p.image_url?<img src={p.image_url} alt="" style={{width:52,height:52,objectFit:"cover",border:`1px solid ${border}`,display:"block"}} />:<span style={{fontSize:24,display:"block",textAlign:"center"}}>{p.emoji||"🪔"}</span>}</td>
+                        <td style={{padding:"12px 16px",width:68}}>{p.image_url?<img src={p.image_url} alt="" onClick={()=>setLightboxSrc(p.image_url!)} style={{width:52,height:52,objectFit:"cover",border:`1px solid ${border}`,display:"block",cursor:"zoom-in"}} />:<span style={{fontSize:24,display:"block",textAlign:"center"}}>{p.emoji||"🪔"}</span>}</td>
                         <td style={{padding:"12px 16px"}}><strong style={{fontSize:14,color:text,display:"block"}}>{p.name}</strong><span style={{fontSize:11,color:textSub}}>{(p.desc||"").substring(0,40)}{(p.desc?.length||0)>40?"…":""}</span></td>
                         <td style={{padding:"12px 16px",fontSize:14,direction:"rtl",color:text,textAlign:"center"}}>{p.nameAr}</td>
                         <td style={{padding:"12px 16px"}}><span style={{background:p.category==="perfume"?(dark?"#2A1800":"#FEF9EC"):(dark?"#001830":"#EEF2FF"),color:p.category==="perfume"?"#D97706":"#6366F1",padding:"4px 10px",fontSize:10,letterSpacing:1,textTransform:"uppercase"}}>{p.category}</span></td>
@@ -1038,6 +1044,13 @@ export default function AdminPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {lightboxSrc&&(
+        <div onClick={()=>setLightboxSrc(null)} style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,0.92)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,cursor:"zoom-out"}}>
+          <img src={lightboxSrc} alt="preview" style={{maxWidth:"100%",maxHeight:"90vh",objectFit:"contain",boxShadow:"0 8px 48px rgba(0,0,0,0.8)"}} onClick={e=>e.stopPropagation()} />
+          <button onClick={()=>setLightboxSrc(null)} style={{position:"fixed",top:20,right:20,background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",width:40,height:40,borderRadius:"50%",fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
         </div>
       )}
 
