@@ -277,7 +277,7 @@ export default function AdminPage() {
       prevOrderStatusesRef.current=new Map(data.map(o=>[o.id,o.status]));
       const pendingCount=data.filter(o=>o.status==="pending").length;
       if(pendingCount>0)playNotification();
-    }, 15000);
+    }, 5000);
     return ()=>clearInterval(interval);
   },[isAuthenticated]);
   const showMsg=(m:string)=>{setToast(m);setTimeout(()=>setToast(""),2500);};
