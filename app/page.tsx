@@ -2,7 +2,7 @@
 import { supabase } from "../supabase";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { saveProduct, deleteProduct, toggleProductStock, uploadProductImage, setOrderStatus, setOrdersStatusBulk, deleteOrders, saveSetting, addCategory, deleteCategory, setReviewStatus, deleteReview } from "./actions";
+import { saveProduct, deleteProduct, toggleProductStock, uploadProductImage, setOrderStatus, setOrdersStatusBulk, deleteOrders, saveSetting, addCategory, deleteCategory, setReviewStatus, deleteReview, addPromoCode, togglePromoCode, deletePromoCode } from "./actions";
 
 type Order = {
   id: number; created_at: string; customer_name: string; phone: string;
@@ -11,10 +11,11 @@ type Order = {
   denial_reason?: string; country_code?: string; shipping_zone?: string; shipping_cost?: number;
 };
 type Product = {
-  id: number; name: string; nameAr: string; emoji: string; image_url?: string;
+  id: number; name: string; nameAr: string; emoji: string; image_url?: string; images?: string[];
   price: number; original_price?: number; discount: number; desc: string; descAr: string; category: string;
   out_of_stock?: boolean; sold_out?: boolean;
 };
+type PromoCode = { id: number; code: string; discount_percent: number; active: boolean; created_at: string };
 
 const STATUS_LABELS: Record<string,{en:string;ar:string}> = {
   pending:   {en:"Pending",   ar:"قيد الانتظار"},
@@ -150,6 +151,9 @@ export default function AdminPage() {
   const [pImageFile, setPImageFile] = useState<File|null>(null); const [pImagePreview, setPImagePreview] = useState(""); const [pImageUploading, setPImageUploading] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string|null>(null);
   const [pImageKey, setPImageKey] = useState(0); // Fix #1: reset input key
+  // Multiple images (up to 5): each slot is either an existing URL or a pending File
+  const [pImages, setPImages] = useState<{url:string;file?:File}[]>([]);
+  const extraFileInputRef = useRef<HTMLInputElement>(null);
   const [pPrice, setPPrice] = useState(""); const [pDiscount, setPDiscount] = useState("0");
   const [pDesc, setPDesc] = useState(""); const [pDescAr, setPDescAr] = useState(""); const [pCategory, setPCategory] = useState("perfume");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -177,6 +181,16 @@ export default function AdminPage() {
   const [adminReviews, setAdminReviews] = useState<{id:number;customer_name:string;rating:number;comment:string;status:string;created_at:string}[]>([]);
   const [waApproveMsg, setWaApproveMsg] = useState("Hello {name}!\nYour Joud Aloud order has been confirmed.\nTotal: {total} JOD\nOur team will contact you soon. Thank you!");
   const [waDenyMsg, setWaDenyMsg] = useState("Hello {name},\nUnfortunately, your Joud Aloud order has been denied.\nReason: {reason}.\nPlease contact us if a refund is applicable. Thank you.");
+
+  // Promo codes
+  const [promoCodes, setPromoCodes] = useState<PromoCode[]>([]);
+  const [newPromoCode, setNewPromoCode] = useState("");
+  const [newPromoDiscount, setNewPromoDiscount] = useState("");
+  const [savingPromo, setSavingPromo] = useState(false);
+
+  // Maintenance mode
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [savingMaintenance, setSavingMaintenance] = useState(false);
 
   const bg=dark?"#0D0D0D":"#F7F4EF"; const cardBg=dark?"#161616":"#FFFFFF";
   const border=dark?"#252525":"#E5DDD0"; const text=dark?"#EDE8E0":"#1C1510";
@@ -212,7 +226,7 @@ export default function AdminPage() {
       showMsg(e?.message||"Error");return false;
     }finally{setActionLoading(false);}
   };
-  useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();fetchAdminPin();fetchCliqInfo();fetchCategories();fetchWAMessages();fetchReviews();}},[isAuthenticated]);
+  useEffect(()=>{if(isAuthenticated){fetchProducts();fetchOrders();fetchSettings();fetchAdminPin();fetchCliqInfo();fetchCategories();fetchWAMessages();fetchReviews();fetchPromoCodes();fetchMaintenanceMode();}},[isAuthenticated]);
 
   // Notification sound for new orders — polls every 15 seconds
   const audioRef = useRef<HTMLAudioElement|null>(null);
@@ -289,10 +303,12 @@ export default function AdminPage() {
   const fetchSettings=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","shipping_fees").single();if(data?.value)setShippingFees(data.value);};
   const fetchAdminPin=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","admin_pin").single();if(data?.value?.pin)setAdminPin(data.value.pin);};
   const fetchCliqInfo=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","cliq").single();if(data?.value)setCliqInfo({alias:data.value.alias||"",bank:data.value.bank||"",retrievedName:data.value.retrievedName||""});};
+  const fetchPromoCodes=async()=>{const{data}=await supabase.from("promo_codes").select("*").order("id",{ascending:false});if(data)setPromoCodes(data);};
+  const fetchMaintenanceMode=async()=>{const{data}=await supabase.from("settings").select("*").eq("key","maintenance_mode").single();if(typeof data?.value==="boolean")setMaintenanceMode(data.value);};
 
   // Fix #7: different message on each wrong attempt
-  const resetForm=()=>{setPName("");setPNameAr("");setPEmoji("🪔");setPPrice("");setPDiscount("");setPDesc("");setPDescAr("");setPCategory("perfume");setPImageFile(null);setPImagePreview("");setPImageKey(k=>k+1);setEditingProduct(null);setShowForm(false);};
-  const startEdit=(p:Product)=>{setEditingProduct(p);setPName(p.name);setPNameAr(p.nameAr);setPEmoji(p.emoji||"🪔");setPPrice(String(p.price));setPDiscount(String(p.discount));setPDesc(p.desc);setPDescAr(p.descAr);setPCategory(p.category);setPImagePreview(p.image_url||"");setPImageFile(null);setPImageKey(k=>k+1);setShowForm(true);};
+  const resetForm=()=>{setPName("");setPNameAr("");setPEmoji("🪔");setPPrice("");setPDiscount("");setPDesc("");setPDescAr("");setPCategory("perfume");setPImageFile(null);setPImagePreview("");setPImageKey(k=>k+1);setPImages([]);setEditingProduct(null);setShowForm(false);};
+  const startEdit=(p:Product)=>{setEditingProduct(p);setPName(p.name);setPNameAr(p.nameAr);setPEmoji(p.emoji||"🪔");setPPrice(String(p.price));setPDiscount(String(p.discount));setPDesc(p.desc);setPDescAr(p.descAr);setPCategory(p.category);setPImagePreview(p.image_url||"");setPImageFile(null);setPImageKey(k=>k+1);setPImages((p.images||[]).map(url=>({url})));setShowForm(true);};
 
   const uploadImage=async(file:File):Promise<string|null>=>{
     try{
@@ -310,7 +326,15 @@ export default function AdminPage() {
     if(!pName||!pPrice){showMsg("Name and price required");return;}
     let image_url=pImagePreview&&!pImagePreview.startsWith("data:")?pImagePreview:(editingProduct?.image_url||"");
     if(pImageFile){setPImageUploading(true);const url=await uploadImage(pImageFile);setPImageUploading(false);if(!url)return;image_url=url;}
-    const payload={name:pName,nameAr:pNameAr,emoji:pEmoji,image_url,price:finalPrice,original_price:origPrice,discount:discountPct,desc:pDesc,descAr:pDescAr,category:pCategory};
+    // Upload any pending extra images (max 5)
+    setPImageUploading(true);
+    const images:string[]=[];
+    for(const img of pImages.slice(0,5)){
+      if(img.file){const url=await uploadImage(img.file);if(!url){setPImageUploading(false);return;}images.push(url);}
+      else images.push(img.url);
+    }
+    setPImageUploading(false);
+    const payload={name:pName,nameAr:pNameAr,emoji:pEmoji,image_url,images,price:finalPrice,original_price:origPrice,discount:discountPct,desc:pDesc,descAr:pDescAr,category:pCategory};
     if(!await runAction(()=>saveProduct(payload,editingProduct?.id)))return;
     showMsg(editingProduct?"Updated!":"Added!");fetchProducts();resetForm();
   };
@@ -707,6 +731,25 @@ export default function AdminPage() {
                     </div>
                   </div>
                 </div>
+                {/* Gallery: up to 5 additional images */}
+                <div style={{marginBottom:18}}>
+                  <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:7,display:"block"}}>{lang==="ar"?"معرض الصور (حتى 5)":"Image Gallery (up to 5)"}</label>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                    {pImages.map((img,i)=>(
+                      <div key={i} style={{position:"relative",width:74,height:74,flexShrink:0}}>
+                        <img src={img.url} alt="" onClick={()=>setLightboxSrc(img.url)} style={{width:74,height:74,objectFit:"cover",border:`1px solid ${border}`,cursor:"zoom-in"}} />
+                        <button type="button" onClick={()=>setPImages(arr=>arr.filter((_,j)=>j!==i))} style={{position:"absolute",top:-8,right:-8,background:"#EF4444",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+                      </div>
+                    ))}
+                    {pImages.length<5&&(
+                      <div onClick={()=>extraFileInputRef.current?.click()} style={{width:74,height:74,border:`2px dashed ${border}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",color:textSub,fontSize:11,gap:4,flexShrink:0}}>
+                        <span style={{fontSize:18}}>+</span><span>{lang==="ar"?"إضافة":"Add"}</span>
+                      </div>
+                    )}
+                  </div>
+                  <input ref={extraFileInputRef} type="file" accept="image/*" onChange={e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=ev=>{setPImages(arr=>arr.length<5?[...arr,{url:ev.target?.result as string,file:f}]:arr);};r.readAsDataURL(f);e.target.value="";}} style={{display:"none"}} />
+                  <p style={{fontSize:11,color:textSub,marginTop:6}}>{lang==="ar"?"اختياري — يستخدم في معرض صور المنتج":"Optional — used for the product detail gallery"}</p>
+                </div>
                 <div className="grid-3" style={{display:"grid",gap:14,marginBottom:14}}>
                   {[{l:lang==="ar"?"الاسم (إنجليزي)":"Name (EN)",v:pName,s:setPName,ph:"Oud Al Layl"},{l:lang==="ar"?"الاسم (عربي)":"Name (AR)",v:pNameAr,s:setPNameAr,ph:"عود الليل"}].map(f=>(
                     <div key={f.l}><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{f.l}</label><input value={f.v} onChange={e=>f.s(e.target.value)} placeholder={f.ph} style={inp} /></div>
@@ -970,6 +1013,57 @@ export default function AdminPage() {
                 <button onClick={async()=>{if(!await runAction(()=>saveSetting("wa_messages",{approve:waApproveMsg,deny:waDenyMsg})))return;showMsg("Saved!");}} style={{background:"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 24px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
                   {lang==="ar"?"حفظ":"Save"}
                 </button>
+              </SettingsCard>
+
+              {/* Promo Codes */}
+              <SettingsCard title={lang==="ar"?"أكواد الخصم":"Promo Codes"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
+                <div style={{marginBottom:12}}>
+                  {promoCodes.map(c=>(
+                    <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${border}`,gap:8}}>
+                      <div><span style={{fontSize:13,color:text,fontWeight:600,letterSpacing:1}}>{c.code}</span> <span style={{fontSize:11,color:textSub}}>-{c.discount_percent}%</span></div>
+                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                        <button onClick={async()=>{if(!await runAction(()=>togglePromoCode(c.id,c.active)))return;fetchPromoCodes();}} style={{background:c.active?(dark?"#002A00":"#DCFCE7"):(dark?"#2A0000":"#FEF2F2"),color:c.active?"#22C55E":"#EF4444",border:"none",padding:"3px 9px",fontSize:10,fontWeight:700,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif"}}>
+                          {c.active?(lang==="ar"?"مفعل":"ACTIVE"):(lang==="ar"?"معطل":"INACTIVE")}
+                        </button>
+                        <button onClick={async()=>{if(!confirm(lang==="ar"?"حذف هذا الكود؟":"Delete this code?"))return;if(!await runAction(()=>deletePromoCode(c.id)))return;fetchPromoCodes();}} style={{background:"transparent",border:"none",color:"#EF4444",padding:"2px 8px",fontSize:12,cursor:"pointer"}}>x</button>
+                      </div>
+                    </div>
+                  ))}
+                  {promoCodes.length===0&&<p style={{color:textSub,fontSize:12,padding:"8px 0",margin:0}}>{lang==="ar"?"لا توجد أكواد":"No promo codes yet"}</p>}
+                </div>
+                <div className="grid-2" style={{display:"grid",gap:8,marginBottom:10}}>
+                  <input value={newPromoCode} onChange={e=>setNewPromoCode(e.target.value.toUpperCase())} placeholder={lang==="ar"?"الكود":"CODE"} style={{...inp,fontSize:12,padding:"8px 10px",letterSpacing:1}} />
+                  <input value={newPromoDiscount} onChange={e=>setNewPromoDiscount(e.target.value)} placeholder={lang==="ar"?"نسبة الخصم %":"Discount %"} type="number" min="0" max="100" style={{...inp,fontSize:12,padding:"8px 10px"}} />
+                </div>
+                <button disabled={savingPromo} onClick={async()=>{
+                  const code=newPromoCode.trim();const pct=parseFloat(newPromoDiscount);
+                  if(!code||!pct||pct<=0||pct>100){showMsg(lang==="ar"?"أدخل كودًا ونسبة خصم صحيحة":"Enter a valid code and discount %");return;}
+                  setSavingPromo(true);
+                  const ok=await runAction(()=>addPromoCode(code,pct));
+                  setSavingPromo(false);
+                  if(!ok)return;
+                  setNewPromoCode("");setNewPromoDiscount("");fetchPromoCodes();showMsg(lang==="ar"?"تمت الإضافة":"Added");
+                }} style={{background:savingPromo?"#555":"#1C1510",color:"#E8DFD0",border:"none",padding:"10px 20px",fontSize:11,letterSpacing:1,textTransform:"uppercase",cursor:savingPromo?"not-allowed":"pointer",fontFamily:"Jost,sans-serif"}}>
+                  + {lang==="ar"?"إضافة":"Add"}
+                </button>
+              </SettingsCard>
+
+              {/* Maintenance Mode */}
+              <SettingsCard title={lang==="ar"?"وضع الصيانة":"Maintenance Mode"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
+                <p style={{fontSize:12,color:textSub,marginBottom:14}}>{lang==="ar"?"عند التفعيل، سيتم عرض رسالة صيانة لجميع الزوار بدلاً من المتجر.":"When enabled, all visitors see a maintenance message instead of the store."}</p>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <button onClick={async()=>{
+                    const next=!maintenanceMode;
+                    setSavingMaintenance(true);
+                    const ok=await runAction(()=>saveSetting("maintenance_mode",next));
+                    setSavingMaintenance(false);
+                    if(!ok)return;
+                    setMaintenanceMode(next);showMsg(lang==="ar"?"تم الحفظ":"Saved!");
+                  }} disabled={savingMaintenance} style={{position:"relative",width:50,height:28,borderRadius:14,border:"none",background:maintenanceMode?"#22C55E":(dark?"#333":"#D4C4B0"),cursor:savingMaintenance?"not-allowed":"pointer",transition:"background 0.2s",flexShrink:0}}>
+                    <span style={{position:"absolute",top:3,left:maintenanceMode?25:3,width:22,height:22,borderRadius:"50%",background:"#fff",transition:"left 0.2s"}} />
+                  </button>
+                  <span style={{fontSize:13,color:text,fontWeight:600}}>{maintenanceMode?(lang==="ar"?"مفعل":"Enabled"):(lang==="ar"?"معطل":"Disabled")}</span>
+                </div>
               </SettingsCard>
             </div>
           </div>

@@ -95,6 +95,25 @@ export async function deleteCategory(id: number) {
   if (error) throw new Error(error.message);
 }
 
+// ---- Promo Codes ----
+export async function addPromoCode(code: string, discount_percent: number) {
+  const supabase = await requireUser();
+  const { error } = await supabase.from("promo_codes").insert([{ code: code.trim().toUpperCase(), discount_percent }]);
+  if (error) throw new Error(error.message);
+}
+
+export async function togglePromoCode(id: number, current: boolean) {
+  const supabase = await requireUser();
+  const { error } = await supabase.from("promo_codes").update({ active: !current }).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deletePromoCode(id: number) {
+  const supabase = await requireUser();
+  const { error } = await supabase.from("promo_codes").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
 // ---- Reviews ----
 export async function setReviewStatus(id: number, status: string) {
   const supabase = await requireUser();
