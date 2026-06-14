@@ -147,6 +147,7 @@ export default function AdminPage() {
   // Products
   const [products, setProducts] = useState<Product[]>([]);
   const [dragIndex, setDragIndex] = useState<number|null>(null);
+  const [dragOver, setDragOver] = useState<{index:number,position:"top"|"bottom"}|null>(null);
   const [showForm, setShowForm] = useState(false); const [editingProduct, setEditingProduct] = useState<Product|null>(null);
   const [pName, setPName] = useState(""); const [pNameAr, setPNameAr] = useState(""); const [pEmoji, setPEmoji] = useState("🪔");
   const [pImageFile, setPImageFile] = useState<File|null>(null); const [pImagePreview, setPImagePreview] = useState(""); const [pImageUploading, setPImageUploading] = useState(false);
@@ -180,7 +181,7 @@ export default function AdminPage() {
   const [newCatAr, setNewCatAr] = useState("");
   const [newCatSlug, setNewCatSlug] = useState("");
   const [adminReviews, setAdminReviews] = useState<{id:number;customer_name:string;rating:number;comment:string;status:string;created_at:string}[]>([]);
-  const [waApproveMsg, setWaApproveMsg] = useState("Hello {name}!\nYour Joud Aloud order has been confirmed.\nTotal: {total} JOD\nOur team will contact you soon. Thank you!");
+  const [waApproveMsg, setWaApproveMsg] = useState("Hello {name}!\nYour Joud Aloud order has been confirmed.\nTotal: {total} JD\nOur team will contact you soon. Thank you!");
   const [waDenyMsg, setWaDenyMsg] = useState("Hello {name},\nUnfortunately, your Joud Aloud order has been denied.\nReason: {reason}.\nPlease contact us if a refund is applicable. Thank you.");
 
   // Promo codes
@@ -346,6 +347,7 @@ export default function AdminPage() {
     reordered.splice(dropIndex,0,moved);
     setProducts(reordered);
     setDragIndex(null);
+    setDragOver(null);
     await runAction(()=>reorderProducts(reordered.map((p,i)=>({id:p.id,sort_order:i+1}))));
     fetchProducts();
   };
@@ -532,7 +534,7 @@ export default function AdminPage() {
           {[
             {key:"orders",label:lang==="ar"?"إجمالي الطلبات":"Total Orders",value:String(orders.length),color:text},
             {key:"pending",label:lang==="ar"?"قيد الانتظار":"Pending",value:String(pending),color:"#F59E0B"},
-            {key:"revenue",label:lang==="ar"?"الإيرادات":"Revenue",value:revenue.toFixed(2),suffix:" JOD",color:"#22C55E"},
+            {key:"revenue",label:lang==="ar"?"الإيرادات":"Revenue",value:revenue.toFixed(2),suffix:" JD",color:"#22C55E"},
             {key:"products",label:lang==="ar"?"المنتجات":"Products",value:String(products.length),color:text},
           ].map(s=>(
             <div key={s.label} style={{background:cardBg,border:`1px solid ${border}`,padding:"22px 26px"}}>
@@ -631,7 +633,7 @@ export default function AdminPage() {
                           </div>
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:12}}>
-                          <span style={{fontFamily:"Jost,sans-serif",fontSize:20,fontWeight:700,color:"#22C55E"}}>{order.total_price.toFixed(2)} <span style={{fontSize:11,fontFamily:"Jost,sans-serif",opacity:0.7}}>JOD</span></span>
+                          <span style={{fontFamily:"Jost,sans-serif",fontSize:20,fontWeight:700,color:"#22C55E"}}>{order.total_price.toFixed(2)} <span style={{fontSize:11,fontFamily:"Jost,sans-serif",opacity:0.7}}>JD</span></span>
                           <span style={{color:textSub,fontSize:16,cursor:"pointer"}} onClick={()=>setExpandedOrder(isExpanded?null:order.id)}>{isExpanded?"▲":"▼"}</span>
                         </div>
                       </div>
@@ -644,7 +646,7 @@ export default function AdminPage() {
                               {l:lang==="ar"?"الهاتف":"Phone",v:order.phone},
                               {l:lang==="ar"?"العنوان":"Address",v:order.address},
                               {l:lang==="ar"?"التاريخ":"Date",v:formatDate(order.created_at)},
-                              ...(order.shipping_zone?[{l:lang==="ar"?"منطقة الشحن":"Shipping Zone",v:(order.shipping_zone==="amman"?(lang==="ar"?"عمان":"Amman"):(lang==="ar"?"خارج عمان":"Outside Amman"))+" — "+(order.shipping_cost===0?(lang==="ar"?"مجاني":"Free"):order.shipping_cost+" JOD")}]:[]),
+                              ...(order.shipping_zone?[{l:lang==="ar"?"منطقة الشحن":"Shipping Zone",v:(order.shipping_zone==="amman"?(lang==="ar"?"عمان":"Amman"):(lang==="ar"?"خارج عمان":"Outside Amman"))+" — "+(order.shipping_cost===0?(lang==="ar"?"مجاني":"Free"):order.shipping_cost+" JD")}]:[]),
                               ...(order.notes?[{l:lang==="ar"?"ملاحظات":"Notes",v:order.notes}]:[]),
                             ].map(f=>(
                               <div key={f.l}>
@@ -660,7 +662,7 @@ export default function AdminPage() {
                             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                               {order.items?.map((item:any,i:number)=>(
                                 <span key={i} style={{background:dark?"#1E1E1E":"#F7F2EA",border:`1px solid ${border}`,padding:"5px 12px",fontSize:12,color:textSub}}>
-                                  {lang==="ar"&&item.nameAr?item.nameAr:item.name} × {item.qty||1} — {((item.price||0)*(item.qty||1)).toFixed(2)} JOD
+                                  {lang==="ar"&&item.nameAr?item.nameAr:item.name} × {item.qty||1} — {((item.price||0)*(item.qty||1)).toFixed(2)} JD
                                 </span>
                               ))}
                             </div>
@@ -774,12 +776,12 @@ export default function AdminPage() {
                   <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الفئة":"Category"}</label><select value={pCategory} onChange={e=>setPCategory(e.target.value)} style={{...inp}}>{adminCategories.map(c=><option key={c.slug} value={c.slug}>{lang==="ar"?c.name_ar:c.name}</option>)}</select></div>
                 </div>
                 <div className="grid-3" style={{display:"grid",gap:14,marginBottom:14}}>
-                  <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر الأصلي (JOD)":"Original Price"}</label><input value={pPrice} onChange={e=>setPPrice(e.target.value)} placeholder="28" type="number" step="0.001" style={inp} /></div>
+                  <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر الأصلي (JD)":"Original Price"}</label><input value={pPrice} onChange={e=>setPPrice(e.target.value)} placeholder="28" type="number" step="0.001" style={inp} /></div>
                   <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الخصم %":"Discount %"}</label><input value={pDiscount} onChange={e=>setPDiscount(e.target.value)} placeholder="0" type="number" min="0" max="100" style={inp} /></div>
                   <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر النهائي":"Final Price"}</label>
                     <div style={{...inp,background:dark?"#111":"#F0EBE3",display:"flex",alignItems:"center",gap:7}}>
                       {discountPct>0&&<span style={{textDecoration:"line-through",color:textSub,fontSize:12}}>{origPrice.toFixed(2)}</span>}
-                      <span style={{color:"#22C55E",fontWeight:700}}>{finalPrice.toFixed(2)} JOD</span>
+                      <span style={{color:"#22C55E",fontWeight:700}}>{finalPrice.toFixed(2)} JD</span>
                       {discountPct>0&&<span style={{background:"#22C55E",color:"#fff",padding:"2px 6px",fontSize:10,fontWeight:700,marginLeft:"auto"}}>-{discountPct}%</span>}
                     </div>
                   </div>
@@ -807,15 +809,15 @@ export default function AdminPage() {
                     const hasDiscount=p.discount>0;
                     const orig=p.original_price||p.price;
                     return(
-                      <tr key={p.id} draggable onDragStart={()=>setDragIndex(idx)} onDragOver={e=>e.preventDefault()} onDrop={()=>handleProductDrop(idx)} style={{borderBottom:`1px solid ${border}`,opacity:dragIndex===idx?0.4:1,cursor:"move"}}>
+                      <tr key={p.id} draggable onDragStart={()=>setDragIndex(idx)} onDragOver={e=>{e.preventDefault();const rect=(e.currentTarget as HTMLTableRowElement).getBoundingClientRect();const pos=e.clientY-rect.top<rect.height/2?"top":"bottom";if(dragOver?.index!==idx||dragOver?.position!==pos)setDragOver({index:idx,position:pos});}} onDragLeave={()=>setDragOver(prev=>prev?.index===idx?null:prev)} onDrop={()=>{handleProductDrop(idx);setDragOver(null);}} style={{borderBottom:dragOver?.index===idx&&dragOver.position==="bottom"?"2px solid #8B6F47":`1px solid ${border}`,borderTop:dragOver?.index===idx&&dragOver.position==="top"?"2px solid #8B6F47":undefined,opacity:dragIndex===idx?0.4:1,cursor:"move"}}>
                         <td style={{padding:"12px 8px",width:24,color:textSub,fontSize:16,textAlign:"center"}}>⠿</td>
                         <td style={{padding:"12px 16px",width:68}}>{p.image_url?<img src={p.image_url} alt="" onClick={()=>setLightboxSrc(p.image_url!)} style={{width:52,height:52,objectFit:"cover",border:`1px solid ${border}`,display:"block",cursor:"zoom-in"}} />:<span style={{fontSize:24,display:"block",textAlign:"center"}}>{p.emoji||"🪔"}</span>}</td>
                         <td style={{padding:"12px 16px"}}><strong style={{fontSize:14,color:text,display:"block"}}>{p.name}</strong><span style={{fontSize:11,color:textSub}}>{(p.desc||"").substring(0,40)}{(p.desc?.length||0)>40?"…":""}</span></td>
                         <td style={{padding:"12px 16px",fontSize:14,direction:"rtl",color:text,textAlign:"center"}}>{p.nameAr}</td>
                         <td style={{padding:"12px 16px"}}><span style={{background:p.category==="perfume"?(dark?"#2A1800":"#FEF9EC"):(dark?"#001830":"#EEF2FF"),color:p.category==="perfume"?"#D97706":"#6366F1",padding:"4px 10px",fontSize:10,letterSpacing:1,textTransform:"uppercase"}}>{p.category}</span></td>
                         <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>
-                          {hasDiscount&&<span style={{textDecoration:"line-through",color:textSub,fontSize:12,display:"block"}}>{Number(orig).toFixed(2)} JOD</span>}
-                          <span style={{fontWeight:700,fontSize:14,color:"#22C55E"}}>{Number(p.price).toFixed(2)} JOD</span>
+                          {hasDiscount&&<span style={{textDecoration:"line-through",color:textSub,fontSize:12,display:"block"}}>{Number(orig).toFixed(2)} JD</span>}
+                          <span style={{fontWeight:700,fontSize:14,color:"#22C55E"}}>{Number(p.price).toFixed(2)} JD</span>
                         </td>
                         <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>
                           {p.out_of_stock?<span style={{background:"#FEF3C7",color:"#F59E0B",padding:"3px 9px",fontSize:10,fontWeight:700,letterSpacing:1}}>{lang==="ar"?"غير متوفر":"OUT OF STOCK"}</span>
@@ -907,7 +909,7 @@ export default function AdminPage() {
                       <span style={{fontSize:13,color:text}}>{o.customer_name}</span>
                       <span style={{fontSize:10,color:textSub,background:dark?"#1E1E1E":"#F7F2EA",padding:"2px 8px"}}>{o.payment_method}</span>
                     </div>
-                    <span style={{fontSize:14,color:"#22C55E",fontWeight:600}}>{typeof o.total_price==="number"?o.total_price.toFixed(2):o.total_price} JOD</span>
+                    <span style={{fontSize:14,color:"#22C55E",fontWeight:600}}>{typeof o.total_price==="number"?o.total_price.toFixed(2):o.total_price} JD</span>
                   </div>
                 ))}
                 {orders.filter(o=>o.status==="delivered"||o.status==="confirmed"||o.status==="shipped").length===0&&(
@@ -916,7 +918,7 @@ export default function AdminPage() {
               </div>
               <div style={{display:"flex",justifyContent:"space-between",marginTop:12,paddingTop:12,borderTop:`2px solid ${accent}`}}>
                 <span style={{fontSize:12,letterSpacing:2,textTransform:"uppercase",color:accent,fontWeight:600}}>{lang==="ar"?"الإجمالي":"Total Revenue"}</span>
-                <span style={{fontFamily:"Jost,sans-serif",fontSize:22,fontWeight:700,color:"#22C55E"}}>{revenue.toFixed(2)} JOD</span>
+                <span style={{fontFamily:"Jost,sans-serif",fontSize:22,fontWeight:700,color:"#22C55E"}}>{revenue.toFixed(2)} JD</span>
               </div>
             </div>
 
@@ -927,11 +929,11 @@ export default function AdminPage() {
               <SettingsCard title={lang==="ar"?"رسوم التوصيل":"Delivery Fees"} accent={accent} cardBg={cardBg} border={border} text={text} dark={dark}>
                 <div style={{display:"grid",gap:12,marginBottom:14}}>
                   <div>
-                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"عمان (JOD)":"Amman (JOD)"}</label>
+                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"عمان (JD)":"Amman (JD)"}</label>
                     <input type="number" step="0.001" min="0" value={shippingFees.amman} onChange={e=>setShippingFees(f=>({...f,amman:parseFloat(e.target.value)||0}))} style={inp} />
                   </div>
                   <div>
-                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"خارج عمان (JOD)":"Outside (JOD)"}</label>
+                    <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"خارج عمان (JD)":"Outside (JD)"}</label>
                     <input type="number" step="0.001" min="0" value={shippingFees.outside} onChange={e=>setShippingFees(f=>({...f,outside:parseFloat(e.target.value)||0}))} style={inp} />
                   </div>
                 </div>
@@ -1098,7 +1100,7 @@ export default function AdminPage() {
               <div key={order.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${border}`}}>
                 <div>
                   <p style={{fontSize:13,color:text,margin:"0 0 2px",fontWeight:600}}>{order.customer_name}</p>
-                  <p style={{fontSize:11,color:textSub,margin:0}}>#{order.id} · {order.phone} · {typeof order.total_price==="number"?order.total_price.toFixed(2):order.total_price} JOD</p>
+                  <p style={{fontSize:11,color:textSub,margin:0}}>#{order.id} · {order.phone} · {typeof order.total_price==="number"?order.total_price.toFixed(2):order.total_price} JD</p>
                 </div>
                 <button onClick={()=>{waConfirm(order);setConfirmSent(s=>new Set(s).add(order.id));}} style={{background:confirmSent.has(order.id)?"#9A8B7A":"#25D366",color:"#fff",border:"none",padding:"8px 16px",fontSize:11,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600,whiteSpace:"nowrap"}}>
                   {confirmSent.has(order.id)?(lang==="ar"?"تم الإرسال ✓":"Sent ✓"):(lang==="ar"?"إرسال":"Send")}
