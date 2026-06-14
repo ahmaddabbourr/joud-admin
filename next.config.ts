@@ -18,6 +18,15 @@ const csp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      // Allow uploading product images. The default Server Action body
+      // size limit is 1MB, which is smaller than most phone-camera photos
+      // and caused "an unexpected response was received from the server"
+      // errors before the action code even ran.
+      bodySizeLimit: "10mb",
+    },
+  },
   async headers() {
     return [
       {
