@@ -27,6 +27,14 @@ export async function deleteProduct(id: number) {
   if (error) throw new Error(error.message);
 }
 
+export async function reorderProducts(items: { id: number; sort_order: number }[]) {
+  const supabase = await requireUser();
+  for (const item of items) {
+    const { error } = await supabase.from("products").update({ sort_order: item.sort_order }).eq("id", item.id);
+    if (error) throw new Error(error.message);
+  }
+}
+
 export async function toggleProductStock(id: number, field: "out_of_stock" | "sold_out", current: boolean) {
   const supabase = await requireUser();
   const otherField = field === "out_of_stock" ? "sold_out" : "out_of_stock";

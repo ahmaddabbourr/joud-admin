@@ -2,7 +2,7 @@
 import { supabase } from "../supabase";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { saveProduct, deleteProduct, toggleProductStock, uploadProductImage, setOrderStatus, setOrdersStatusBulk, deleteOrders, saveSetting, addCategory, deleteCategory, setReviewStatus, deleteReview, addPromoCode, togglePromoCode, deletePromoCode } from "./actions";
+import { saveProduct, deleteProduct, toggleProductStock, reorderProducts, uploadProductImage, setOrderStatus, setOrdersStatusBulk, deleteOrders, saveSetting, addCategory, deleteCategory, setReviewStatus, deleteReview, addPromoCode, togglePromoCode, deletePromoCode } from "./actions";
 
 type Order = {
   id: number; created_at: string; customer_name: string; phone: string;
@@ -13,7 +13,7 @@ type Order = {
 type Product = {
   id: number; name: string; nameAr: string; emoji: string; image_url?: string; images?: string[];
   price: number; original_price?: number; discount: number; desc: string; descAr: string; category: string;
-  out_of_stock?: boolean; sold_out?: boolean;
+  out_of_stock?: boolean; sold_out?: boolean; sort_order?: number|null;
 };
 type PromoCode = { id: number; code: string; discount_percent: number; active: boolean; created_at: string };
 
@@ -146,6 +146,7 @@ export default function AdminPage() {
 
   // Products
   const [products, setProducts] = useState<Product[]>([]);
+  const [dragIndex, setDragIndex] = useState<number|null>(null);
   const [showForm, setShowForm] = useState(false); const [editingProduct, setEditingProduct] = useState<Product|null>(null);
   const [pName, setPName] = useState(""); const [pNameAr, setPNameAr] = useState(""); const [pEmoji, setPEmoji] = useState("🪔");
   const [pImageFile, setPImageFile] = useState<File|null>(null); const [pImagePreview, setPImagePreview] = useState(""); const [pImageUploading, setPImageUploading] = useState(false);
@@ -295,7 +296,7 @@ export default function AdminPage() {
     return ()=>clearInterval(interval);
   },[isAuthenticated]);
   const showMsg=(m:string)=>{setToast(m);setTimeout(()=>setToast(""),2500);};
-  const fetchProducts=async()=>{const{data}=await supabase.from("products").select("*").order("id",{ascending:true});if(data)setProducts(data);};
+  const fetchProducts=async()=>{const{data}=await supabase.from("products").select("*").order("sort_order",{ascending:true,nullsFirst:false}).order("id",{ascending:true});if(data)setProducts(data);};
   const fetchOrders=async()=>{const{data}=await supabase.from("orders").select("*").order("id",{ascending:false});if(data)setOrders(data);};
   const fetchCategories=async()=>{const{data}=await supabase.from("categories").select("*").order("id",{ascending:true});if(data)setAdminCategories(data);};
   const fetchReviews=async()=>{const{data}=await supabase.from("reviews").select("*").order("created_at",{ascending:false});if(data)setAdminReviews(data);};
@@ -338,6 +339,16 @@ export default function AdminPage() {
     if(!await runAction(()=>saveProduct(payload,editingProduct?.id)))return;
     showMsg(editingProduct?"Updated!":"Added!");fetchProducts();resetForm();
   };
+  const handleProductDrop=async(dropIndex:number)=>{
+    if(dragIndex===null||dragIndex===dropIndex){setDragIndex(null);return;}
+    const reordered=[...products];
+    const [moved]=reordered.splice(dragIndex,1);
+    reordered.splice(dropIndex,0,moved);
+    setProducts(reordered);
+    setDragIndex(null);
+    await runAction(()=>reorderProducts(reordered.map((p,i)=>({id:p.id,sort_order:i+1}))));
+    fetchProducts();
+  };
   const handleDeleteProduct=async(id:number)=>{
     if(!confirm(lang==="ar"?"حذف هذا المنتج؟":"Delete this product?"))return;
     if(!await runAction(()=>deleteProduct(id)))return;
@@ -356,7 +367,7 @@ export default function AdminPage() {
 
   // WhatsApp: send confirm message to customer
   const waConfirm=(order:Order)=>{
-    const msg=waApproveMsg.replace(/{name}/g,order.customer_name).replace(/{total}/g,String(typeof order.total_price==="number"?order.total_price.toFixed(3):order.total_price));
+    const msg=waApproveMsg.replace(/{name}/g,order.customer_name).replace(/{total}/g,String(typeof order.total_price==="number"?order.total_price.toFixed(2):order.total_price));
     window.open(`https://wa.me/${order.phone.replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`,"_blank");
   };
   const waDeny=(order:Order,reason:string)=>{
@@ -485,6 +496,9 @@ export default function AdminPage() {
                 </>
               )}
             </div>
+            <a href="https://joudaloud.com" target="_blank" rel="noopener noreferrer" style={{background:"transparent",border:"1px solid transparent",color:"#D4C4B0",padding:"7px 14px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500,textDecoration:"none"}}>
+              {lang==="ar"?"الموقع":"Website"}
+            </a>
             <button onClick={()=>openTab("settings")} style={{background:"transparent",border:activeTab==="settings"?`1px solid ${accent}`:"1px solid transparent",color:activeTab==="settings"?accent:"#D4C4B0",padding:"7px 14px",fontSize:12,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:500}}>
               {lang==="ar"?"الإعدادات":"Settings"}
             </button>
@@ -500,6 +514,9 @@ export default function AdminPage() {
       </nav>
       {/* Admin mobile dropdown */}
       <div className={`admin-mobile-dropdown${adminMenu?" open":""}`}>
+        <a href="https://joudaloud.com" target="_blank" rel="noopener noreferrer" style={{background:"none",border:"none",color:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left",textDecoration:"none",display:"block"}}>
+          {lang==="ar"?"الموقع":"Website"}
+        </a>
         <button onClick={()=>{openTab("settings");setAdminMenu(false);}} style={{background:"none",border:"none",color:activeTab==="settings"?accent:"#D4C4B0",padding:"10px 0",fontSize:13,cursor:"pointer",fontFamily:"Jost,sans-serif",textAlign:lang==="ar"?"right":"left"}}>
           {lang==="ar"?"الإعدادات":"Settings"}
         </button>
@@ -515,7 +532,7 @@ export default function AdminPage() {
           {[
             {key:"orders",label:lang==="ar"?"إجمالي الطلبات":"Total Orders",value:String(orders.length),color:text},
             {key:"pending",label:lang==="ar"?"قيد الانتظار":"Pending",value:String(pending),color:"#F59E0B"},
-            {key:"revenue",label:lang==="ar"?"الإيرادات":"Revenue",value:revenue.toFixed(3),suffix:" JOD",color:"#22C55E"},
+            {key:"revenue",label:lang==="ar"?"الإيرادات":"Revenue",value:revenue.toFixed(2),suffix:" JOD",color:"#22C55E"},
             {key:"products",label:lang==="ar"?"المنتجات":"Products",value:String(products.length),color:text},
           ].map(s=>(
             <div key={s.label} style={{background:cardBg,border:`1px solid ${border}`,padding:"22px 26px"}}>
@@ -614,7 +631,7 @@ export default function AdminPage() {
                           </div>
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:12}}>
-                          <span style={{fontFamily:"Jost,sans-serif",fontSize:20,fontWeight:700,color:"#22C55E"}}>{order.total_price.toFixed(3)} <span style={{fontSize:11,fontFamily:"Jost,sans-serif",opacity:0.7}}>JOD</span></span>
+                          <span style={{fontFamily:"Jost,sans-serif",fontSize:20,fontWeight:700,color:"#22C55E"}}>{order.total_price.toFixed(2)} <span style={{fontSize:11,fontFamily:"Jost,sans-serif",opacity:0.7}}>JOD</span></span>
                           <span style={{color:textSub,fontSize:16,cursor:"pointer"}} onClick={()=>setExpandedOrder(isExpanded?null:order.id)}>{isExpanded?"▲":"▼"}</span>
                         </div>
                       </div>
@@ -643,7 +660,7 @@ export default function AdminPage() {
                             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                               {order.items?.map((item:any,i:number)=>(
                                 <span key={i} style={{background:dark?"#1E1E1E":"#F7F2EA",border:`1px solid ${border}`,padding:"5px 12px",fontSize:12,color:textSub}}>
-                                  {lang==="ar"&&item.nameAr?item.nameAr:item.name} × {item.qty||1} — {((item.price||0)*(item.qty||1)).toFixed(3)} JOD
+                                  {lang==="ar"&&item.nameAr?item.nameAr:item.name} × {item.qty||1} — {((item.price||0)*(item.qty||1)).toFixed(2)} JOD
                                 </span>
                               ))}
                             </div>
@@ -761,8 +778,8 @@ export default function AdminPage() {
                   <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"الخصم %":"Discount %"}</label><input value={pDiscount} onChange={e=>setPDiscount(e.target.value)} placeholder="0" type="number" min="0" max="100" style={inp} /></div>
                   <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,marginBottom:5,display:"block"}}>{lang==="ar"?"السعر النهائي":"Final Price"}</label>
                     <div style={{...inp,background:dark?"#111":"#F0EBE3",display:"flex",alignItems:"center",gap:7}}>
-                      {discountPct>0&&<span style={{textDecoration:"line-through",color:textSub,fontSize:12}}>{origPrice.toFixed(3)}</span>}
-                      <span style={{color:"#22C55E",fontWeight:700}}>{finalPrice.toFixed(3)} JOD</span>
+                      {discountPct>0&&<span style={{textDecoration:"line-through",color:textSub,fontSize:12}}>{origPrice.toFixed(2)}</span>}
+                      <span style={{color:"#22C55E",fontWeight:700}}>{finalPrice.toFixed(2)} JOD</span>
                       {discountPct>0&&<span style={{background:"#22C55E",color:"#fff",padding:"2px 6px",fontSize:10,fontWeight:700,marginLeft:"auto"}}>-{discountPct}%</span>}
                     </div>
                   </div>
@@ -781,23 +798,24 @@ export default function AdminPage() {
             <div style={{background:cardBg,border:`1px solid ${border}`,overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse"}}>
                 <thead><tr style={{borderBottom:`2px solid ${border}`}}>
-                  {(lang==="ar"?["","الاسم","العربي","الفئة","السعر","الحالة","الإجراءات"]:["","Name","Arabic","Category","Price","Status","Actions"]).map(h=>(
+                  {(lang==="ar"?["","","الاسم","العربي","الفئة","السعر","الحالة","الإجراءات"]:["","","Name","Arabic","Category","Price","Status","Actions"]).map(h=>(
                     <th key={h} style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:textSub,padding:"14px 16px",textAlign:lang==="ar"?"right":"left",fontWeight:500,whiteSpace:"nowrap"}}>{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
-                  {products.map(p=>{
+                  {products.map((p,idx)=>{
                     const hasDiscount=p.discount>0;
                     const orig=p.original_price||p.price;
                     return(
-                      <tr key={p.id} style={{borderBottom:`1px solid ${border}`}}>
+                      <tr key={p.id} draggable onDragStart={()=>setDragIndex(idx)} onDragOver={e=>e.preventDefault()} onDrop={()=>handleProductDrop(idx)} style={{borderBottom:`1px solid ${border}`,opacity:dragIndex===idx?0.4:1,cursor:"move"}}>
+                        <td style={{padding:"12px 8px",width:24,color:textSub,fontSize:16,textAlign:"center"}}>⠿</td>
                         <td style={{padding:"12px 16px",width:68}}>{p.image_url?<img src={p.image_url} alt="" onClick={()=>setLightboxSrc(p.image_url!)} style={{width:52,height:52,objectFit:"cover",border:`1px solid ${border}`,display:"block",cursor:"zoom-in"}} />:<span style={{fontSize:24,display:"block",textAlign:"center"}}>{p.emoji||"🪔"}</span>}</td>
                         <td style={{padding:"12px 16px"}}><strong style={{fontSize:14,color:text,display:"block"}}>{p.name}</strong><span style={{fontSize:11,color:textSub}}>{(p.desc||"").substring(0,40)}{(p.desc?.length||0)>40?"…":""}</span></td>
                         <td style={{padding:"12px 16px",fontSize:14,direction:"rtl",color:text,textAlign:"center"}}>{p.nameAr}</td>
                         <td style={{padding:"12px 16px"}}><span style={{background:p.category==="perfume"?(dark?"#2A1800":"#FEF9EC"):(dark?"#001830":"#EEF2FF"),color:p.category==="perfume"?"#D97706":"#6366F1",padding:"4px 10px",fontSize:10,letterSpacing:1,textTransform:"uppercase"}}>{p.category}</span></td>
                         <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>
-                          {hasDiscount&&<span style={{textDecoration:"line-through",color:textSub,fontSize:12,display:"block"}}>{orig} JOD</span>}
-                          <span style={{fontWeight:700,fontSize:14,color:"#22C55E"}}>{p.price} JOD</span>
+                          {hasDiscount&&<span style={{textDecoration:"line-through",color:textSub,fontSize:12,display:"block"}}>{Number(orig).toFixed(2)} JOD</span>}
+                          <span style={{fontWeight:700,fontSize:14,color:"#22C55E"}}>{Number(p.price).toFixed(2)} JOD</span>
                         </td>
                         <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>
                           {p.out_of_stock?<span style={{background:"#FEF3C7",color:"#F59E0B",padding:"3px 9px",fontSize:10,fontWeight:700,letterSpacing:1}}>{lang==="ar"?"غير متوفر":"OUT OF STOCK"}</span>
@@ -889,7 +907,7 @@ export default function AdminPage() {
                       <span style={{fontSize:13,color:text}}>{o.customer_name}</span>
                       <span style={{fontSize:10,color:textSub,background:dark?"#1E1E1E":"#F7F2EA",padding:"2px 8px"}}>{o.payment_method}</span>
                     </div>
-                    <span style={{fontSize:14,color:"#22C55E",fontWeight:600}}>{typeof o.total_price==="number"?o.total_price.toFixed(3):o.total_price} JOD</span>
+                    <span style={{fontSize:14,color:"#22C55E",fontWeight:600}}>{typeof o.total_price==="number"?o.total_price.toFixed(2):o.total_price} JOD</span>
                   </div>
                 ))}
                 {orders.filter(o=>o.status==="delivered"||o.status==="confirmed"||o.status==="shipped").length===0&&(
@@ -898,7 +916,7 @@ export default function AdminPage() {
               </div>
               <div style={{display:"flex",justifyContent:"space-between",marginTop:12,paddingTop:12,borderTop:`2px solid ${accent}`}}>
                 <span style={{fontSize:12,letterSpacing:2,textTransform:"uppercase",color:accent,fontWeight:600}}>{lang==="ar"?"الإجمالي":"Total Revenue"}</span>
-                <span style={{fontFamily:"Jost,sans-serif",fontSize:22,fontWeight:700,color:"#22C55E"}}>{revenue.toFixed(3)} JOD</span>
+                <span style={{fontFamily:"Jost,sans-serif",fontSize:22,fontWeight:700,color:"#22C55E"}}>{revenue.toFixed(2)} JOD</span>
               </div>
             </div>
 
@@ -1080,7 +1098,7 @@ export default function AdminPage() {
               <div key={order.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${border}`}}>
                 <div>
                   <p style={{fontSize:13,color:text,margin:"0 0 2px",fontWeight:600}}>{order.customer_name}</p>
-                  <p style={{fontSize:11,color:textSub,margin:0}}>#{order.id} · {order.phone} · {typeof order.total_price==="number"?order.total_price.toFixed(3):order.total_price} JOD</p>
+                  <p style={{fontSize:11,color:textSub,margin:0}}>#{order.id} · {order.phone} · {typeof order.total_price==="number"?order.total_price.toFixed(2):order.total_price} JOD</p>
                 </div>
                 <button onClick={()=>{waConfirm(order);setConfirmSent(s=>new Set(s).add(order.id));}} style={{background:confirmSent.has(order.id)?"#9A8B7A":"#25D366",color:"#fff",border:"none",padding:"8px 16px",fontSize:11,letterSpacing:1,cursor:"pointer",fontFamily:"Jost,sans-serif",fontWeight:600,whiteSpace:"nowrap"}}>
                   {confirmSent.has(order.id)?(lang==="ar"?"تم الإرسال ✓":"Sent ✓"):(lang==="ar"?"إرسال":"Send")}
